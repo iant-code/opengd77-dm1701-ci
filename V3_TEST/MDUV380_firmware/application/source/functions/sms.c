@@ -2521,6 +2521,67 @@ static smsPackResult_t smsBuildStandardPayload(uint32_t destinationId, uint32_t 
 	return SMS_PACK_OK;
 }
 
+// Generic IP/UDP-over-DMR framing: same IPv4 header (smsBuildIpHeader, unchanged/reused) and the
+// same trailing-CRC32-over-the-whole-block convention as smsBuildStandardPayload, but with a
+// plain 8-byte UDP header (no DMR_Standard-specific 4-byte sub-header) and a caller-supplied
+// application payload instead of UTF16 text. udpPort is used as both source and destination port.
+smsPackResult_t smsBuildIpUdpPayload(uint32_t destinationId, uint32_t sourceId, uint16_t udpPort,
+	const uint8_t *appPayload, uint16_t appPayloadLength,
+	uint8_t *payload, uint16_t *payloadLength, uint8_t *padOctetCount)
+{
+	uint16_t ipPacketLength;
+	uint16_t udpLength;
+	uint16_t checksum;
+	uint16_t crcOffset;
+	uint32_t crc32;
+
+	if ((appPayload == NULL) || (payload == NULL) || (payloadLength == NULL) || (padOctetCount == NULL))
+	{
+		return SMS_PACK_ERROR_EMPTY;
+	}
+
+	if (appPayloadLength > (SMS_MAX_TRANSPORT_BYTES - 28U))
+	{
+		return SMS_PACK_ERROR_TOO_LONG;
+	}
+
+	ipPacketLength = (uint16_t)(28U + appPayloadLength); // IP header(20) + UDP header(8) + payload
+	*padOctetCount = (uint8_t)((SMS_BLOCK_DATA_BYTES - ((ipPacketLength + SMS_STANDARD_CRC32_BYTES) % SMS_BLOCK_DATA_BYTES)) % SMS_BLOCK_DATA_BYTES);
+	crcOffset = (uint16_t)(ipPacketLength + *padOctetCount);
+	*payloadLength = (uint16_t)(crcOffset + SMS_STANDARD_CRC32_BYTES);
+
+	if (*payloadLength > SMS_MAX_TRANSPORT_BYTES)
+	{
+		return SMS_PACK_ERROR_TOO_LONG;
+	}
+
+	memset(payload, 0, SMS_MAX_TRANSPORT_BYTES);
+	smsBuildIpHeader(payload, ipPacketLength, sourceId, destinationId);
+
+	udpLength = (uint16_t)(appPayloadLength + 8U);
+	payload[20] = (uint8_t)((udpPort >> 8) & 0xFFU);
+	payload[21] = (uint8_t)(udpPort & 0xFFU);
+	payload[22] = (uint8_t)((udpPort >> 8) & 0xFFU);
+	payload[23] = (uint8_t)(udpPort & 0xFFU);
+	payload[24] = (uint8_t)((udpLength >> 8) & 0xFFU);
+	payload[25] = (uint8_t)(udpLength & 0xFFU);
+	payload[26] = 0x00U;
+	payload[27] = 0x00U;
+	memcpy(&payload[28], appPayload, appPayloadLength);
+
+	checksum = smsUdpChecksum(payload, udpLength);
+	payload[26] = (uint8_t)((checksum >> 8) & 0xFFU);
+	payload[27] = (uint8_t)(checksum & 0xFFU);
+
+	crc32 = smsCrc32Compute(payload, crcOffset);
+	payload[crcOffset] = (uint8_t)(crc32 & 0xFFU);
+	payload[crcOffset + 1U] = (uint8_t)((crc32 >> 8) & 0xFFU);
+	payload[crcOffset + 2U] = (uint8_t)((crc32 >> 16) & 0xFFU);
+	payload[crcOffset + 3U] = (uint8_t)((crc32 >> 24) & 0xFFU);
+
+	return SMS_PACK_OK;
+}
+
 static bool smsDecodeMotorolaPayload(const uint8_t *payload, uint16_t totalLength, uint8_t padOctets, char *textOut)
 {
 	uint16_t ipPacketLength;
@@ -2983,6 +3044,25 @@ bool smsQueueRawCsbkMessage(const uint8_t *csbkFrame, uint8_t repeatCount)
 	queuedMessage.csbkOnly = true;
 	queuedMessage.csbkRepeatCount = repeatCount;
 	memcpy(queuedMessage.csbk, csbkFrame, sizeof(queuedMessage.csbk));
+	queuedMessageValid = true;
+
+	return true;
+}
+
+void smsBuildTransportHeaders(smsPreparedMessage_t *message)
+{
+	smsBuildCsbk(message);
+	smsBuildDataHeader(message);
+}
+
+bool smsQueuePreBuiltMessage(const smsPreparedMessage_t *message)
+{
+	if ((message == NULL) || queuedMessageValid)
+	{
+		return false;
+	}
+
+	queuedMessage = *message;
 	queuedMessageValid = true;
 
 	return true;

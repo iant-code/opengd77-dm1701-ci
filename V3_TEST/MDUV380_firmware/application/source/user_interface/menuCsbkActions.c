@@ -31,9 +31,11 @@
 #include "user_interface/menuCsbkActions.h"
 #include "functions/csbk.h"
 #include "functions/sms.h"
+#include "functions/lrrp.h"
 #include "functions/sound.h"
 #include "functions/trx.h"
 #include "functions/codeplug.h"
+#include "functions/settings.h"
 #include "usb/usb_com.h"
 
 // Diagnostic logging used to root-cause the Call Alert / Radio Check TX-hang investigation
@@ -108,8 +110,10 @@ static const char *csbkActionsTitle(void)
 		case CSBK_ACTION_RADIO_CHECK:
 			return "Radio Check";
 		case CSBK_ACTION_STATUS:
-		default:
 			return "Send Status";
+		case CSBK_ACTION_SEND_LOCATION:
+		default:
+			return "Send Location";
 	}
 }
 
@@ -316,8 +320,25 @@ static void csbkActionsTrySend(void)
 			break;
 
 		case CSBK_ACTION_STATUS:
-		default:
 			if (smsQueueStatusMessage((uint32_t)parsedId, trxDMRID, csbkStatusTable[csbkActionSelectedStatusIndex].code) == SMS_PACK_OK)
+			{
+				started = smsScheduleQueuedStatusTransmission((uint32_t)parsedId, trxDMRID);
+				if (!started)
+				{
+					smsClearQueuedMessage();
+				}
+			}
+			break;
+
+		case CSBK_ACTION_SEND_LOCATION:
+		default:
+			if (!settingsLocationIsValid())
+			{
+				uiNotificationShow(NOTIFICATION_TYPE_MESSAGE, NOTIFICATION_ID_USER, 2000U, "No GPS fix set", true);
+				return;
+			}
+
+			if (lrrpQueueLocationReport((uint32_t)parsedId, trxDMRID) == SMS_PACK_OK)
 			{
 				started = smsScheduleQueuedStatusTransmission((uint32_t)parsedId, trxDMRID);
 				if (!started)

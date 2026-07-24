@@ -174,4 +174,23 @@ bool smsScheduleQueuedStatusTransmission(uint32_t destinationId, uint32_t source
 bool smsHasStatusRxNotification(void);
 bool smsConsumeStatusRxNotification(smsStatusNotification_t *notification);
 
+// Generic IP/UDP-over-DMR framing (same IPv4 header, checksum, and trailing CRC32 convention as
+// the DMR_Standard SMS transport), used by lrrp.c to carry an LRRP/MBXML payload instead of SMS
+// text. udpPort is used as both source and destination port, matching real LRRP traffic (port
+// 4001). Fills payload/payloadLength/padOctetCount exactly like smsBuildStandardPayload does.
+smsPackResult_t smsBuildIpUdpPayload(uint32_t destinationId, uint32_t sourceId, uint16_t udpPort,
+	const uint8_t *appPayload, uint16_t appPayloadLength,
+	uint8_t *payload, uint16_t *payloadLength, uint8_t *padOctetCount);
+
+// Builds message->csbk and message->dataHeader (the same Preamble CSBK + Unconfirmed Data header
+// shape a real SMS send uses, SAP=IP) from message->destinationId/sourceId/blockCount, which the
+// caller must already have set. Used by lrrp.c so its data-header framing matches proven SMS TX
+// exactly rather than being re-derived.
+void smsBuildTransportHeaders(smsPreparedMessage_t *message);
+
+// Queues an already-fully-built smsPreparedMessage_t (csbk/dataHeader/blocks/blockCount all set)
+// for transmission via the same queue slot smsQueueMessage()/smsQueueStatusMessage() use. Used by
+// lrrp.c. Fails if a message is already queued.
+bool smsQueuePreBuiltMessage(const smsPreparedMessage_t *message);
+
 #endif

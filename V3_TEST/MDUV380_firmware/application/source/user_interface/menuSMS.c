@@ -55,8 +55,6 @@
 #define SMS_VIEW_SCROLLBAR_X    (DISPLAY_SIZE_X - SMS_VIEW_SCROLLBAR_WIDTH)
 #define SMS_VIEW_MAX_LINES      (SMS_MAX_LEN + 2)
 
-// TEMPORARY: Call Alert / Radio Check re-enabled with heavy debug logging to root-cause a
-// confirmed hang-on-entry bug. Do not treat this as fixed -- this is a diagnostic build only.
 enum
 {
 	SMS_MENU_ITEM_COMPOSE = 0,
@@ -66,6 +64,7 @@ enum
 	SMS_MENU_ITEM_CALL_ALERT,
 	SMS_MENU_ITEM_RADIO_CHECK,
 	SMS_MENU_ITEM_STATUS,
+	SMS_MENU_ITEM_SEND_LOCATION,
 	SMS_MENU_ITEMS_COUNT
 };
 
@@ -587,7 +586,7 @@ static void smsComposeSetPreset(const char *text)
 static void smsMenuRender(void)
 {
 	int mNum = 0;
-	const char *menuText[SMS_MENU_ITEMS_COUNT] = { "SEND SMS", "INBOX", "QUICK TEXT", "SENT", "CALL ALERT", "RADIO CHECK", "STATUS" };
+	const char *menuText[SMS_MENU_ITEMS_COUNT] = { "SEND SMS", "INBOX", "QUICK TEXT", "SENT", "CALL ALERT", "RADIO CHECK", "STATUS", "SEND LOCATION" };
 
 	displayClearBuf();
 	menuDisplayTitle("SMS");
@@ -1426,9 +1425,14 @@ menuStatus_t menuSMSMenu(uiEvent_t *ev, bool isFirstRun)
 			menuCsbkActionsSetKind(CSBK_ACTION_RADIO_CHECK);
 			menuSystemPushNewMenu(MENU_CSBK_ACTIONS);
 		}
-		else
+		else if (menuDataGlobal.currentItemIndex == SMS_MENU_ITEM_STATUS)
 		{
 			menuCsbkActionsSetKind(CSBK_ACTION_STATUS);
+			menuSystemPushNewMenu(MENU_CSBK_ACTIONS);
+		}
+		else
+		{
+			menuCsbkActionsSetKind(CSBK_ACTION_SEND_LOCATION);
 			menuSystemPushNewMenu(MENU_CSBK_ACTIONS);
 		}
 	}

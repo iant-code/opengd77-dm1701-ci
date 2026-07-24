@@ -72,6 +72,7 @@
 "./application/source/functions/codeplug.o"
 "./application/source/functions/csbk.o"
 "./application/source/functions/hotspot.o"
+"./application/source/functions/lrrp.o"
 "./application/source/functions/mdc1200.o"
 "./application/source/functions/rxPowerSaving.o"
 "./application/source/functions/satellite.o"

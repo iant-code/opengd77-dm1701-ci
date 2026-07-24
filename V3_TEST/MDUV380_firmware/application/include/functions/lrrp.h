@@ -24,19 +24,28 @@
  *
  */
 
-#ifndef _OPENGD77_MENUCSBKACTIONS_H_
-#define _OPENGD77_MENUCSBKACTIONS_H_
+#ifndef _OPENGD77_LRRP_H_
+#define _OPENGD77_LRRP_H_
 
-typedef enum
-{
-	CSBK_ACTION_CALL_ALERT = 0,
-	CSBK_ACTION_RADIO_CHECK,
-	CSBK_ACTION_STATUS,
-	CSBK_ACTION_SEND_LOCATION
-} csbkActionKind_t;
+#include <stdint.h>
+#include "functions/sms.h"
 
-// Called from menuSMS.c before pushing MENU_CSBK_ACTIONS, mirroring how smsComposeHasPreset
-// primes menuSMSCompose -- picks which of the three actions the shared screen performs.
-void menuCsbkActionsSetKind(csbkActionKind_t kind);
+// Builds and queues the radio's current GPS position (from settingsLocationGetLatitude/Longitude)
+// as an LRRP (Location Request Response Protocol) "Triggered Location Report" over the same DMR
+// IP/UDP transport (port 4001) real AnyTone/Hytera radios use for this -- BrandMeister's APRS
+// gateway requires LRRP specifically (this fork's own embedded-LC GPS via Talker Alias is a
+// different mechanism it does not recognise).
+//
+// Wire format is built from the real ok-dmrlib (OK-DMR project) MBXML/LRRP source, cross-checked
+// against a real captured example from a RadioReference forum thread (document id 0x0D, an
+// info-time token then a location token) -- not purely reverse-engineered from an abstract spec.
+// Still genuinely unverified: whether BrandMeister's specific gateway implementation accepts an
+// *unprompted* Triggered-Location-Report (real usage is normally a response to a query) with no
+// request-id token attached. Confirm with a real test (does a position show up on aprs.fi?)
+// before relying on this.
+//
+// After a successful call, use smsScheduleQueuedStatusTransmission() (already generic despite the
+// name) to actually key up and send it -- same as Status messages do.
+smsPackResult_t lrrpQueueLocationReport(uint32_t destinationId, uint32_t sourceId);
 
 #endif
