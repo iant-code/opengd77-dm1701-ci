@@ -353,7 +353,9 @@ enum MENU_SCREENS
 	MENU_THEME_ITEMS_BROWSER,
 	MENU_COLOUR_PICKER,
 #endif
+	MENU_GAMES_MENU,
 	MENU_GAME_SNAKE,
+	MENU_GAME_SPACE,
 	NUM_MENU_ENTRIES
 };
 
@@ -452,6 +454,7 @@ extern menuDataGlobal_t 		menuDataGlobal;
 extern const menuItemsList_t 	menuDataMainMenu;
 extern const menuItemsList_t 	menuDataContact;
 extern const menuItemsList_t 	menuDataOptions;
+extern const menuItemsList_t 	menuDataGames;
 extern bool lockscreenIsRearming;
 
 menuStatus_t uiVFOMode(uiEvent_t *event, bool isFirstRun);
@@ -509,5 +512,7 @@ menuStatus_t menuColourPicker(uiEvent_t *ev, bool isFirstRun);
 #endif
 // Controls: 2=up, 4=left, 6=right, 8=down (numeric keypad, matches the classic phone-Snake layout).
 menuStatus_t menuGameSnake(uiEvent_t *ev, bool isFirstRun);
+// Controls: 2/4/6/8 move the ship, auto-fires -- a small Nokia "Space Impact" style shooter.
+menuStatus_t menuGameSpace(uiEvent_t *ev, bool isFirstRun);
 
 #endif

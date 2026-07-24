@@ -62,6 +62,10 @@ menuStatus_t menuDisplayMenuList(uiEvent_t *ev, bool isFirstRun)
 					{
 						customMenuName = "SMS options";
 					}
+					else if (lastMenuItem->menuNum == MENU_GAMES_MENU)
+					{
+						customMenuName = "Games";
+					}
 					else
 					{
 						menuName = (currentLanguage->LANGUAGE_NAME +
@@ -117,6 +121,9 @@ static void updateScreen(bool isFirstRun)
 		case MENU_OPTIONS:
 			mName = currentLanguage->options;
 			break;
+		case MENU_GAMES_MENU:
+			mName = "Games";
+			break;
 	}
 
 	menuDisplayTitle(mName);
@@ -148,6 +155,16 @@ static void updateScreen(bool isFirstRun)
 				else if (menuDataGlobal.currentMenuList[mNum].menuNum == MENU_GAME_SNAKE)
 				{
 					menuName = "Play Snake";
+					customString = true;
+				}
+				else if (menuDataGlobal.currentMenuList[mNum].menuNum == MENU_GAMES_MENU)
+				{
+					menuName = "Games";
+					customString = true;
+				}
+				else if (menuDataGlobal.currentMenuList[mNum].menuNum == MENU_GAME_SPACE)
+				{
+					menuName = "Space";
 					customString = true;
 				}
 

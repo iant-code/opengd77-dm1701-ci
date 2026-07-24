@@ -117,7 +117,9 @@ menuDataGlobal_t menuDataGlobal =
 				NULL,// Theme items browser
 				NULL,// Colour picker
 #endif
+				&menuDataGames,// Games menu
 				NULL,// Snake game
+				NULL,// Space game
 		}
 };
 
@@ -186,7 +188,9 @@ static menuFunctionData_t menuFunctions[] =
 		{ menuThemeItemsBrowser,    NULL, NULL, 0 },
 		{ menuColourPicker,         NULL, NULL, 0 },
 #endif
+		{ menuDisplayMenuList,      NULL, NULL, 0 },// display Games menu using the menu display system
 		{ menuGameSnake,            NULL, NULL, 0 },
+		{ menuGameSpace,            NULL, NULL, 0 },
 };
 
 static void menuSystemCheckForFirstEntryAudible(menuStatus_t status)
@@ -681,7 +685,7 @@ const menuItemNewData_t mainMenuItems[] =
 #if defined(HAS_GPS)
 	{ 195, MENU_GPS		        },
 #endif
-	{   0, MENU_GAME_SNAKE      }, // stringOffset unused -- menuDisplayMenuList.c overrides the label to "Play Snake"
+	{   0, MENU_GAMES_MENU      }, // stringOffset unused -- menuDisplayMenuList.c overrides the label to "Games"
 };
 
 const menuItemsList_t menuDataMainMenu =
@@ -701,6 +705,18 @@ const menuItemsList_t menuDataContact =
 {
 	.numItems = (sizeof(contactMenuItems) / sizeof(contactMenuItems[0])),
 	.items = contactMenuItems
+};
+
+static const menuItemNewData_t gamesMenuItems[] =
+{
+	{ 0, MENU_GAME_SNAKE }, // stringOffset unused -- menuDisplayMenuList.c overrides the label to "Play Snake"
+	{ 0, MENU_GAME_SPACE }, // stringOffset unused -- menuDisplayMenuList.c overrides the label to "Space"
+};
+
+const menuItemsList_t menuDataGames =
+{
+	.numItems = (sizeof(gamesMenuItems) / sizeof(gamesMenuItems[0])),
+	.items = gamesMenuItems
 };
 
 static const menuItemNewData_t optionsMenuItems[] =

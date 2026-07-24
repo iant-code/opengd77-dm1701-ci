@@ -333,6 +333,20 @@ static void iconDrawNewContact(int16_t x, int16_t y, bool isInverted) // New Con
 	displaySetForegroundAndBackgroundColours(savedFg, savedBg);
 }
 
+static void iconDrawSpaceship(int16_t x, int16_t y, bool isInverted) // Play Space -- always cyan rocket
+{
+	uint16_t savedFg, savedBg;
+
+	(void)isInverted;
+	displayGetForegroundAndBackgroundColours(&savedFg, &savedBg);
+	displaySetForegroundAndBackgroundColours(displayConvertRGB888ToNative(0x00B8D4U), savedBg); // cyan
+
+	displayFillTriangle((int16_t)(x + 8), (int16_t)(y + 5), (int16_t)(x + 2), (int16_t)(y + 1), (int16_t)(x + 2), (int16_t)(y + 8), true); // hull, nose to the right
+	displayFillTriangle((int16_t)(x + 2), (int16_t)(y + 8), (int16_t)(x), (int16_t)(y + 9), (int16_t)(x + 2), (int16_t)(y + 5), true); // fin
+
+	displaySetForegroundAndBackgroundColours(savedFg, savedBg);
+}
+
 static void iconDrawSnake(int16_t x, int16_t y, bool isInverted) // Play Snake -- always green zigzag body
 {
 	uint16_t savedFg, savedBg;
@@ -349,6 +363,18 @@ static void iconDrawSnake(int16_t x, int16_t y, bool isInverted) // Play Snake -
 	displayFillCircle((int16_t)(x + 9), (int16_t)(y + 2), 1, true); // head
 
 	displaySetForegroundAndBackgroundColours(savedFg, savedBg);
+}
+
+static void iconDrawChessPiece(int16_t x, int16_t y, bool isInverted) // Games -- knight (horse) head silhouette
+{
+	// Neck/head wedge, tapering to a snout
+	displayFillTriangle((int16_t)(x + 1), (int16_t)(y + 9), (int16_t)(x + 1), (int16_t)(y + 2), (int16_t)(x + 8), (int16_t)(y + 6), isInverted);
+	// Ear
+	displayFillTriangle((int16_t)(x + 1), (int16_t)(y + 2), (int16_t)(x + 4), y, (int16_t)(x + 5), (int16_t)(y + 3), isInverted);
+	// Eye
+	displaySetPixel((int16_t)(x + 5), (int16_t)(y + 5), isInverted);
+	// displayFillRect() called directly uses the opposite isInverted convention to the shapes above.
+	displayFillRect(x, (int16_t)(y + 9), 8, 1, (bool)(!isInverted));
 }
 
 menuIconDrawFn_t menuIconForMenuId(int menuId)
@@ -383,8 +409,12 @@ menuIconDrawFn_t menuIconForMenuId(int menuId)
 		case MENU_GPS:
 			return iconDrawGps;
 #endif
-		case MENU_GAME_SNAKE:
+		case MENU_GAMES_MENU:
+			return iconDrawChessPiece;
+		case MENU_GAME_SNAKE: // within the Games submenu
 			return iconDrawSnake;
+		case MENU_GAME_SPACE: // within the Games submenu
+			return iconDrawSpaceship;
 		default:
 			return NULL;
 	}

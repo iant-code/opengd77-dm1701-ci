@@ -16,6 +16,7 @@ C_SRCS += \
 ../application/source/user_interface/menuFirmwareInfoScreen.c \
 ../application/source/user_interface/menuGPS.c \
 ../application/source/user_interface/menuGameSnake.c \
+../application/source/user_interface/menuGameSpace.c \
 ../application/source/user_interface/menuGeneralOptions.c \
 ../application/source/user_interface/menuIcons.c \
 ../application/source/user_interface/menuLanguage.c \
@@ -57,6 +58,7 @@ OBJS += \
 ./application/source/user_interface/menuFirmwareInfoScreen.o \
 ./application/source/user_interface/menuGPS.o \
 ./application/source/user_interface/menuGameSnake.o \
+./application/source/user_interface/menuGameSpace.o \
 ./application/source/user_interface/menuGeneralOptions.o \
 ./application/source/user_interface/menuIcons.o \
 ./application/source/user_interface/menuLanguage.o \
@@ -98,6 +100,7 @@ C_DEPS += \
 ./application/source/user_interface/menuFirmwareInfoScreen.d \
 ./application/source/user_interface/menuGPS.d \
 ./application/source/user_interface/menuGameSnake.d \
+./application/source/user_interface/menuGameSpace.d \
 ./application/source/user_interface/menuGeneralOptions.d \
 ./application/source/user_interface/menuIcons.d \
 ./application/source/user_interface/menuLanguage.d \

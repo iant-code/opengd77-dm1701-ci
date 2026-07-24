@@ -120,6 +120,7 @@
 "./application/source/user_interface/menuFirmwareInfoScreen.o"
 "./application/source/user_interface/menuGPS.o"
 "./application/source/user_interface/menuGameSnake.o"
+"./application/source/user_interface/menuGameSpace.o"
 "./application/source/user_interface/menuGeneralOptions.o"
 "./application/source/user_interface/menuIcons.o"
 "./application/source/user_interface/menuLanguage.o"
