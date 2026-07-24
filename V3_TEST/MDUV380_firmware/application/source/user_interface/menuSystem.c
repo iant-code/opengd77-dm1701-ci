@@ -117,6 +117,7 @@ menuDataGlobal_t menuDataGlobal =
 				NULL,// Theme items browser
 				NULL,// Colour picker
 #endif
+				NULL,// Snake game
 		}
 };
 
@@ -185,6 +186,7 @@ static menuFunctionData_t menuFunctions[] =
 		{ menuThemeItemsBrowser,    NULL, NULL, 0 },
 		{ menuColourPicker,         NULL, NULL, 0 },
 #endif
+		{ menuGameSnake,            NULL, NULL, 0 },
 };
 
 static void menuSystemCheckForFirstEntryAudible(menuStatus_t status)
@@ -679,6 +681,7 @@ const menuItemNewData_t mainMenuItems[] =
 #if defined(HAS_GPS)
 	{ 195, MENU_GPS		        },
 #endif
+	{   0, MENU_GAME_SNAKE      }, // stringOffset unused -- menuDisplayMenuList.c overrides the label to "Play Snake"
 };
 
 const menuItemsList_t menuDataMainMenu =
@@ -748,19 +751,40 @@ void menuDisplayTitle(const char *title)
 //  - if equal to 0, no coloured option will be handled
 void menuDisplayEntry(int loopOffset, int focusedItem, const char *entryText, int32_t optStart, themeItem_t fgItem, themeItem_t fgOptItem, themeItem_t bgItem)
 {
+	menuDisplayEntryEx(loopOffset, focusedItem, entryText, optStart, fgItem, fgOptItem, bgItem, NULL, 0);
+}
+
+void menuDisplayEntryEx(int loopOffset, int focusedItem, const char *entryText, int32_t optStart, themeItem_t fgItem, themeItem_t fgOptItem, themeItem_t bgItem, menuIconDrawFn_t iconDraw, int16_t iconWidth)
+{
 	bool focused = (focusedItem == menuDataGlobal.currentItemIndex);
+	int16_t rowY = DISPLAY_Y_POS_MENU_ENTRY_HIGHLIGHT
+#if defined(PLATFORM_RD5R)
+			- 1 // Small V offset due to small font usage
+#endif
+			+ (loopOffset * MENU_ENTRY_HEIGHT);
+	int16_t textXOffset = DISPLAY_X_POS_MENU_TEXT_OFFSET;
 
 	if (focused)
 	{
 		displayThemeApply(THEME_ITEM_BG_MENU_ITEM_SELECTED, bgItem);
-		displayFillRoundRect(DISPLAY_X_POS_MENU_OFFSET, DISPLAY_Y_POS_MENU_ENTRY_HIGHLIGHT
-#if defined(PLATFORM_RD5R)
-				- 1 // Small V offset due to small font usage
-#endif
-				+ (loopOffset * MENU_ENTRY_HEIGHT), DISPLAY_SIZE_X - (DISPLAY_X_POS_MENU_OFFSET * 2), MENU_ENTRY_HEIGHT, 2, true);
+		displayFillRoundRect(DISPLAY_X_POS_MENU_OFFSET, rowY, DISPLAY_SIZE_X - (DISPLAY_X_POS_MENU_OFFSET * 2), MENU_ENTRY_HEIGHT, 2, true);
 	}
 
 	displayThemeApply(fgItem, bgItem);
+
+	if ((iconDraw != NULL) && (iconWidth > 0))
+	{
+		// The vector primitives (displayFillRect/displayDrawCircle/etc, via displaySetPixel) use
+		// the OPPOSITE isInverted convention to displayPrintCore's text rendering just below:
+		// text: isInverted=false -> foregroundColour, true -> backgroundColour (for contrast on
+		// the highlight bar). displaySetPixel: isInverted=false -> backgroundColour, true ->
+		// foregroundColour. So icons need !focused here to land on the same colour text uses for
+		// the same row state -- passing `focused` directly (as originally written) made every
+		// icon invisible on unfocused rows (background-on-background) and only visible, in the
+		// wrong colour, on the focused row.
+		iconDraw((int16_t)(DISPLAY_X_POS_MENU_OFFSET + 2), (int16_t)(rowY + ((MENU_ENTRY_HEIGHT - iconWidth) / 2)), !focused);
+		textXOffset = (int16_t)(textXOffset + iconWidth + 3);
+	}
 
 	if ((focused == false) && ((optStart < 0) || (optStart > 0)))
 	{
@@ -773,17 +797,17 @@ void menuDisplayEntry(int loopOffset, int focusedItem, const char *entryText, in
 			displayThemeApply(fgOptItem, bgItem);
 		}
 
-		displayPrintCore(DISPLAY_X_POS_MENU_TEXT_OFFSET, DISPLAY_Y_POS_MENU_ENTRY_HIGHLIGHT + (loopOffset * MENU_ENTRY_HEIGHT), buffer, FONT_SIZE_3, TEXT_ALIGN_LEFT, focused);
+		displayPrintCore(textXOffset, rowY, buffer, FONT_SIZE_3, TEXT_ALIGN_LEFT, focused);
 
 		if (optStart > 0)
 		{
 			displayThemeApply(fgOptItem, bgItem);
-			displayPrintCore(DISPLAY_X_POS_MENU_TEXT_OFFSET + (optStart * 8), DISPLAY_Y_POS_MENU_ENTRY_HIGHLIGHT + (loopOffset * MENU_ENTRY_HEIGHT), (entryText + optStart), FONT_SIZE_3, TEXT_ALIGN_LEFT, focused);
+			displayPrintCore(textXOffset + (optStart * 8), rowY, (entryText + optStart), FONT_SIZE_3, TEXT_ALIGN_LEFT, focused);
 		}
 	}
 	else
 	{
-		displayPrintCore(DISPLAY_X_POS_MENU_TEXT_OFFSET, DISPLAY_Y_POS_MENU_ENTRY_HIGHLIGHT + (loopOffset * MENU_ENTRY_HEIGHT), entryText, FONT_SIZE_3, TEXT_ALIGN_LEFT, focused);
+		displayPrintCore(textXOffset, rowY, entryText, FONT_SIZE_3, TEXT_ALIGN_LEFT, focused);
 	}
 
 	displayThemeResetToDefault();

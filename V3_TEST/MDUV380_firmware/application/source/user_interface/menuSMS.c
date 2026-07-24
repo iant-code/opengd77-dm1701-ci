@@ -40,6 +40,7 @@
 #include "functions/ticks.h"
 #include "io/keyboard.h"
 #include "user_interface/menuCsbkActions.h"
+#include "user_interface/menuIcons.h"
 
 #define SMS_MAX_LEN        SMS_MAX_TEXT_LENGTH
 #define SMS_CHARS_PER_LINE 18
@@ -602,7 +603,8 @@ static void smsMenuRender(void)
 		{
 			break;
 		}
-		menuDisplayEntry(i, mNum, menuText[mNum], 0, THEME_ITEM_FG_MENU_ITEM, THEME_ITEM_COLOUR_NONE, THEME_ITEM_BG);
+		menuDisplayEntryEx(i, mNum, menuText[mNum], 0, THEME_ITEM_FG_MENU_ITEM, THEME_ITEM_COLOUR_NONE, THEME_ITEM_BG,
+			menuIconForSmsMenuItem(mNum), MENU_ICON_WIDTH);
 	}
 
 	displayRender();
@@ -1242,7 +1244,8 @@ static void smsComposeRenderDestinationSelect(void)
 			break;
 		}
 
-		menuDisplayEntry(i, mNum, options[mNum], 0, THEME_ITEM_FG_MENU_ITEM, THEME_ITEM_COLOUR_NONE, THEME_ITEM_BG);
+		menuDisplayEntryEx(i, mNum, options[mNum], 0, THEME_ITEM_FG_MENU_ITEM, THEME_ITEM_COLOUR_NONE, THEME_ITEM_BG,
+			menuIconForDestinationOption(mNum), MENU_ICON_WIDTH_WIDE);
 	}
 
 	displayThemeApply(THEME_ITEM_FG_OPTIONS_VALUE, THEME_ITEM_BG);

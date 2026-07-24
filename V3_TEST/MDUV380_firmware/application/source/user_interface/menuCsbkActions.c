@@ -29,6 +29,7 @@
 #include "user_interface/uiGlobals.h"
 #include "user_interface/menuSystem.h"
 #include "user_interface/menuCsbkActions.h"
+#include "user_interface/menuIcons.h"
 #include "functions/csbk.h"
 #include "functions/sms.h"
 #include "functions/lrrp.h"
@@ -167,7 +168,8 @@ static void csbkActionsRenderDestinationSelect(void)
 		{
 			break;
 		}
-		menuDisplayEntry(i, mNum, options[mNum], 0, THEME_ITEM_FG_MENU_ITEM, THEME_ITEM_COLOUR_NONE, THEME_ITEM_BG);
+		menuDisplayEntryEx(i, mNum, options[mNum], 0, THEME_ITEM_FG_MENU_ITEM, THEME_ITEM_COLOUR_NONE, THEME_ITEM_BG,
+			menuIconForDestinationOption(mNum), MENU_ICON_WIDTH_WIDE);
 	}
 
 	displayRender();

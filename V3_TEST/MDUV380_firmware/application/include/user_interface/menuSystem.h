@@ -172,6 +172,12 @@ typedef struct
 
 void menuDisplayTitle(const char *title);
 void menuDisplayEntry(int loopOffset, int focusedItem, const char *entryText, int32_t optStart, themeItem_t fgItem, themeItem_t fgOptItem, themeItem_t bgItem);
+// Same as menuDisplayEntry(), plus an optional small icon drawn left of the text (via
+// menuIconDraw_t, a vector-drawing callback -- see menuIcons.h) which shifts the text start
+// right to make room. iconDraw == NULL behaves identically to menuDisplayEntry() (which is
+// implemented as a thin wrapper around this, so every existing call site is unaffected).
+typedef void (*menuIconDrawFn_t)(int16_t x, int16_t y, bool isInverted);
+void menuDisplayEntryEx(int loopOffset, int focusedItem, const char *entryText, int32_t optStart, themeItem_t fgItem, themeItem_t fgOptItem, themeItem_t bgItem, menuIconDrawFn_t iconDraw, int16_t iconWidth);
 
 // menuGetMenuOffset() return values
 #define MENU_OFFSET_BEFORE_FIRST_ENTRY -1
@@ -347,6 +353,7 @@ enum MENU_SCREENS
 	MENU_THEME_ITEMS_BROWSER,
 	MENU_COLOUR_PICKER,
 #endif
+	MENU_GAME_SNAKE,
 	NUM_MENU_ENTRIES
 };
 
@@ -500,5 +507,7 @@ menuStatus_t menuThemeOptions(uiEvent_t *ev, bool isFirstRun);
 menuStatus_t menuThemeItemsBrowser(uiEvent_t *ev, bool isFirstRun);
 menuStatus_t menuColourPicker(uiEvent_t *ev, bool isFirstRun);
 #endif
+// Controls: 2=up, 4=left, 6=right, 8=down (numeric keypad, matches the classic phone-Snake layout).
+menuStatus_t menuGameSnake(uiEvent_t *ev, bool isFirstRun);
 
 #endif

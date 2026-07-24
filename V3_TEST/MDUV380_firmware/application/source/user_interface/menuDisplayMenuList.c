@@ -29,6 +29,7 @@
 #include "user_interface/menuSystem.h"
 #include "user_interface/uiLocalisation.h"
 #include "user_interface/uiUtilities.h"
+#include "user_interface/menuIcons.h"
 
 static void updateScreen(bool isFirstRun);
 static void handleEvent(uiEvent_t *ev);
@@ -144,8 +145,18 @@ static void updateScreen(bool isFirstRun)
 					menuName = "SMS options";
 					customString = true;
 				}
+				else if (menuDataGlobal.currentMenuList[mNum].menuNum == MENU_GAME_SNAKE)
+				{
+					menuName = "Play Snake";
+					customString = true;
+				}
 
-				menuDisplayEntry(i, mNum, menuName, 0, THEME_ITEM_FG_MENU_ITEM, THEME_ITEM_COLOUR_NONE, THEME_ITEM_BG);
+				// menuIconForMenuId() returns NULL for any menuNum without an explicit icon mapping,
+				// which menuDisplayEntryEx() treats identically to plain menuDisplayEntry() -- so
+				// this single call safely covers every screen that shares this list renderer
+				// (Main Menu, Contacts, Options, etc.) without needing a per-screen gate.
+				menuDisplayEntryEx(i, mNum, menuName, 0, THEME_ITEM_FG_MENU_ITEM, THEME_ITEM_COLOUR_NONE, THEME_ITEM_BG,
+					menuIconForMenuId(menuDataGlobal.currentMenuList[mNum].menuNum), MENU_ICON_WIDTH);
 
 				if (i == 0)
 				{
