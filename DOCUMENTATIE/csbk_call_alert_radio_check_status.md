@@ -10,7 +10,10 @@ Real hardware confirmed working as of this writeup: entering all three screens, 
 destination-select flow, and Status sending end-to-end (`TX_END_1: smsActive TX complete`).
 **Call Alert and Radio Check's actual send/TX completion has not yet been explicitly confirmed**
 on real hardware (only that queuing the request succeeds) -- worth one more test watching for a
-`TX_END_1` log line, same as Status showed.
+`TX_END_1` log line, same as Status showed. **Update (see "CSBK opcode values" below): there is
+now a concrete, spec-backed reason to suspect this gap isn't just "hasn't been tested yet" --
+these opcodes are sent under FID=0, but ETSI TS 102 361-2's own FID=0 opcode table doesn't include
+them, so a real receiving radio may simply be discarding them as unrecognised.**
 
 ## What each one does
 
@@ -49,11 +52,31 @@ then-data-header shape. To send one:
 **CSBK opcode values are still best-recollection, not independently verified**: `0x1F` (Call
 Alert), `0x1D` (Radio Check request), `0x20` (Ack). Unlike the SMS Preamble CSBK opcode (`0x3D`,
 proven correct because the whole SMS send path works against real BrandMeister/MMDVMHost
-traffic), these three have only been tested radio-to-itself (loopback) so far. Compliant DMR
-equipment is specified to silently discard CSBKO values it doesn't recognise, so a wrong guess is
-expected to mean "doesn't interoperate with a real AnyTone/Hytera yet", not something more
-disruptive -- but confirm against a real capture (e.g. an MMDVMHost verbose log of a genuine Call
-Alert/Radio Check from another radio) before relying on this for actual cross-vendor use.
+traffic), these three have only been tested radio-to-itself (loopback) so far.
+
+**Update, now backed by the actual spec** (both `ETSI TS 102 361-1` and `-2` PDFs are saved in
+this folder as of this writeup -- see [[reference_etsi_dmr_specs]]): TS 102 361-1 clause 9.3.32
+explicitly delegates all CSBKO *value* assignments to TS 102 361-2. That document's Table B.2
+("CSBKO List") is the complete list of opcodes defined under FID=0 (the "standard, non-vendor"
+facility set this firmware's `csbkBuildFrame()` uses -- `frame[1] = 0x00U`), and it contains
+**only six values**: `0x04` (UU_V_Req), `0x05` (UU_Ans_Rsp), `0x07` (CT_CSBK), `0x26` (NACK_Rsp),
+`0x38` (BS_Dwn_Act), `0x3D` (Pre_CSBK -- confirmed correct, matches this firmware's existing SMS
+Preamble CSBK exactly). **`0x1F`, `0x1D`, and `0x20` are not on this list.** Call Alert and Radio
+Check are real, widely-used DMR features, but not ETSI-standard ones -- they're implemented via
+vendor-specific Feature IDs in real hardware (each manufacturer's own facility set), which is a
+different, proprietary numbering space that isn't published in either ETSI document. Sending these
+opcodes under FID=0 almost certainly means a real, spec-compliant radio just discards them as
+unrecognised/reserved, rather than acting on them as Call Alert/Radio Check -- which lines up
+exactly with "queuing/TX succeeds but completion was never confirmed" above.
+
+**What would actually fix this**: the real vendor FID value (and possibly different opcode
+numbers entirely, under that FID's own space) for a genuine Motorola/Anytone/Hytera Call
+Alert/Radio Check -- not derivable from either ETSI document, since vendor FID facility sets
+aren't published there. Same approach that worked for the SMS Defined-Short-Data header (see
+`sms_send_format_choice.md`) would apply: get a real captured Call Alert/Radio Check burst from an
+actual vendor radio (e.g. via an MMDVMHost verbose log) and reverse-engineer the FID + opcode from
+that, rather than guessing further. **Deliberately not attempted yet** -- coming back to this
+later.
 
 ### Status (extension to `sms.c` / `sms.h`)
 
