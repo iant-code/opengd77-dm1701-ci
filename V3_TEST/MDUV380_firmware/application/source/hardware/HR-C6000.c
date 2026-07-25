@@ -262,12 +262,24 @@ static struct
 	volatile uint8_t smsPreambleCount;
 	volatile uint8_t smsFrameCount;
 	volatile uint8_t smsFrameIndex;
+	// True for the whole duration of an in-progress SMS send whose data blocks (not the preamble
+	// CSBKs or data header, which are always rate-1/2 sized) use rate-3/4 framing -- see
+	// smsPreparedMessage_t.isRate34 in sms.h. Changes both how many bytes hrc6000SendSMSFrame()
+	// writes per block frame (SMS_RATE34_DATA_LENGTH vs LC_DATA_LENGTH) and what Data Slot Type
+	// nibble hrc6000GetSmsDataType() puts in register 0x50 for those frames (0x80 = Rate 3/4 Data,
+	// ETSI TS 102 361-1 table 9.22, vs 0x70 = Rate 1/2 Data). UNVERIFIED ON REAL HARDWARE -- no
+	// prior code path in this firmware has ever exercised rate-3/4 TX; see
+	// DOCUMENTATIE/sms_send_format_choice.md.
+	volatile bool smsRate34Active;
 	uint8_t bufferLimitReachedCount;
 	volatile int ccHoldTimer;
 	volatile uint32_t ccHoldReleaseTickTime;
 	int wakeTriesCount;
 	int hotspotPostponedFrameHandling;
-	uint8_t smsFrames[SMS_MAX_TX_FRAMES][LC_DATA_LENGTH];
+	// Sized for the larger of the two block formats (SMS_RATE34_DATA_LENGTH=18) so the same buffer
+	// serves both rate-1/2 sends (which only use the first LC_DATA_LENGTH=12 bytes of each row) and
+	// rate-3/4 sends, without needing a second parallel buffer.
+	uint8_t smsFrames[SMS_MAX_TX_FRAMES][SMS_RATE34_DATA_LENGTH];
 	char talkAliasText[33];
 	uint8_t talkAliasLocation[7];
 } hrc = {
@@ -293,6 +305,7 @@ static struct
 		.qsoDataSeqCount = 0,
 		.qsoDataTimeout = 0,
 		.txSequence = 0,
+		.smsRate34Active = false,
 		.timeCode = -1,
 		.rxColorCode = 0,
 		.repeaterWakeupResponseTimeout = 0,
@@ -2165,7 +2178,10 @@ static uint8_t hrc6000GetSmsDataType(void)
 		return 0x64U;
 	}
 
-	return 0x70U;
+	// 0x80 = Data Slot Type nibble 1000 (Rate 3/4 Data, ETSI TS 102 361-1 table 9.22) in bits 7-4,
+	// remaining bits 0 same as the rate-1/2 case (0x70 = nibble 0111, Rate 1/2 Data) -- see
+	// smsRate34Active's declaration comment. UNVERIFIED on real hardware.
+	return (hrc.smsRate34Active ? 0x80U : 0x70U);
 }
 
 static uint16_t hrc6000SmsCrc16Ccitt(const uint8_t *data, uint8_t length)
@@ -2193,12 +2209,20 @@ static uint16_t hrc6000SmsCrc16Ccitt(const uint8_t *data, uint8_t length)
 
 static void hrc6000SendSMSFrame(void)
 {
+	uint8_t frameLength;
+	bool isDataBlockFrame;
+
 	if ((hrc.smsActive == false) || (hrc.smsFrameIndex >= hrc.smsFrameCount))
 	{
 		return;
 	}
 
-	SPI0WritePageRegByteArray(0x02, 0x00, hrc.smsFrames[hrc.smsFrameIndex], LC_DATA_LENGTH);
+	// Preamble CSBKs and the data header are always rate-1/2 sized (LC_DATA_LENGTH) even for a
+	// rate-3/4 send -- only the data block frames after them grow to SMS_RATE34_DATA_LENGTH.
+	isDataBlockFrame = (hrc.smsFrameIndex > hrc.smsPreambleCount);
+	frameLength = ((isDataBlockFrame && hrc.smsRate34Active) ? SMS_RATE34_DATA_LENGTH : LC_DATA_LENGTH);
+
+	SPI0WritePageRegByteArray(0x02, 0x00, hrc.smsFrames[hrc.smsFrameIndex], frameLength);
 	SPI0WritePageRegByte(0x04, 0x50, hrc6000GetSmsDataType());
 	hrc.smsFrameIndex++;
 
@@ -2959,6 +2983,7 @@ bool HRC6000StartQueuedSMS(void)
 		// Preamble CSBK loop below which mutates byte[3] and recomputes the CRC each repeat.
 		preambleCount = message->csbkRepeatCount;
 		hrc.smsPreambleCount = preambleCount;
+		hrc.smsRate34Active = false; // csbkOnly sends are always plain 12-byte CSBK repeats
 
 #if CSBK_DEBUG_USB_SERIAL
 		USB_DEBUG_printf("HRC6000StartQueuedSMS: csbkOnly branch, repeatCount=%u slotState=%d\r\n",
@@ -3010,10 +3035,23 @@ bool HRC6000StartQueuedSMS(void)
 	memcpy(hrc.smsFrames[frameIndex], message->dataHeader, LC_DATA_LENGTH);
 	frameIndex++;
 
-	for (uint8_t block = 0U; block < message->blockCount; block++)
+	hrc.smsRate34Active = message->isRate34;
+
+	if (message->isRate34)
 	{
-		memcpy(hrc.smsFrames[frameIndex], message->blocks[block], LC_DATA_LENGTH);
-		frameIndex++;
+		for (uint8_t block = 0U; block < message->blockCount; block++)
+		{
+			memcpy(hrc.smsFrames[frameIndex], message->anytoneBlocks[block], SMS_RATE34_DATA_LENGTH);
+			frameIndex++;
+		}
+	}
+	else
+	{
+		for (uint8_t block = 0U; block < message->blockCount; block++)
+		{
+			memcpy(hrc.smsFrames[frameIndex], message->blocks[block], LC_DATA_LENGTH);
+			frameIndex++;
+		}
 	}
 
 	hrc.smsFrameCount = frameIndex;

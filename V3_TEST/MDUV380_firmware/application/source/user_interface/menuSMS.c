@@ -105,6 +105,8 @@ typedef enum
 {
 	SMS_FORMAT_OPTION_MOTOROLA = 0,
 	SMS_FORMAT_OPTION_STANDARD,
+	// Real ETSI Defined Short Data -- see SMS_ENCODER_ANYTONE in sms.h for what's verified vs not.
+	SMS_FORMAT_OPTION_ANYTONE,
 	SMS_FORMAT_OPTION_COUNT
 } smsFormatOption_t;
 
@@ -1256,7 +1258,7 @@ static void smsComposeRenderDestinationSelect(void)
 
 static void smsComposeRenderFormatSelect(void)
 {
-	const char *options[SMS_FORMAT_OPTION_COUNT] = { "Motorola", "DMR_Standard" };
+	const char *options[SMS_FORMAT_OPTION_COUNT] = { "Motorola", "DMR_Standard", "Anytone" };
 
 	menuDataGlobal.numItems = SMS_FORMAT_OPTION_COUNT;
 	if (smsComposeFormatOptionIndex >= SMS_FORMAT_OPTION_COUNT)
@@ -1612,7 +1614,20 @@ menuStatus_t menuSMSCompose(uiEvent_t *ev, bool isFirstRun)
 
 		if (smsComposeMode == SMS_COMPOSE_MODE_FORMAT_SELECT)
 		{
-			smsEncoderFormat_t format = (smsComposeFormatOptionIndex == SMS_FORMAT_OPTION_STANDARD) ? SMS_ENCODER_STANDARD : SMS_ENCODER_MOTOROLA;
+			smsEncoderFormat_t format;
+
+			if (smsComposeFormatOptionIndex == SMS_FORMAT_OPTION_STANDARD)
+			{
+				format = SMS_ENCODER_STANDARD;
+			}
+			else if (smsComposeFormatOptionIndex == SMS_FORMAT_OPTION_ANYTONE)
+			{
+				format = SMS_ENCODER_ANYTONE;
+			}
+			else
+			{
+				format = SMS_ENCODER_MOTOROLA;
+			}
 
 			if (smsSendBuffer(smsComposePendingDestinationId, format))
 			{

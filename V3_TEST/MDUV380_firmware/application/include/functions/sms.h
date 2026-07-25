@@ -37,6 +37,16 @@
 #define SMS_STANDARD_CRC32_BYTES       4U
 #define SMS_MAX_TRANSPORT_BYTES      (((SMS_MOTOROLA_HEADER_BYTES + SMS_MAX_UTF16_PAYLOAD_BYTES + SMS_STANDARD_CRC32_BYTES + SMS_BLOCK_DATA_BYTES - 1U) / SMS_BLOCK_DATA_BYTES) * SMS_BLOCK_DATA_BYTES)
 #define SMS_MAX_DATA_BLOCKS          ((SMS_MAX_TRANSPORT_BYTES + SMS_BLOCK_DATA_BYTES - 1U) / SMS_BLOCK_DATA_BYTES)
+
+// "Anytone"/ETSI Defined Short Data format (SMS_ENCODER_ANYTONE): rate-3/4 data blocks carry 16
+// payload bytes each (vs this firmware's normal 12-byte rate-1/2 blocks), prefixed with a 2-byte
+// per-block serial-number+CRC field -- ETSI TS 102 361-1 clause 8.2.2.2. No IP/UDP wrapper or
+// trailing CRC32 (unlike SMS_ENCODER_STANDARD): real captures decode as plain UTF-16BE text
+// starting at byte 0 of the reassembled payload, so that's what's encoded here too.
+#define SMS_ANYTONE_BLOCK_PAYLOAD_BYTES   16U
+#define SMS_ANYTONE_BLOCK_HEADER_BYTES     2U
+#define SMS_ANYTONE_BLOCK_TOTAL_BYTES    (SMS_ANYTONE_BLOCK_PAYLOAD_BYTES + SMS_ANYTONE_BLOCK_HEADER_BYTES)
+#define SMS_ANYTONE_MAX_DATA_BLOCKS      ((SMS_MAX_UTF16_PAYLOAD_BYTES + SMS_ANYTONE_BLOCK_PAYLOAD_BYTES - 1U) / SMS_ANYTONE_BLOCK_PAYLOAD_BYTES)
 #define SMS_MAX_RX_DATA_BLOCKS        63U
 #define SMS_PREAMBLE_CSBKS            8U
 #define SMS_MAX_TX_FRAMES            (SMS_PREAMBLE_CSBKS + 1U + SMS_MAX_DATA_BLOCKS)
@@ -65,11 +75,18 @@ typedef enum
 
 // Which wire format to encode an outbound message as. Motorola Compatible Format is this
 // firmware's original/default; Standard Compatible Format is the one Anytone radios identify
-// as "DMR_Standard" in their own menus.
+// as "DMR_Standard" in their own menus. SMS_ENCODER_ANYTONE is the real ETSI "Defined Short
+// Data" format real network services and (reportedly) real Anytone radios use for their actual
+// over-the-air SMS -- distinct from SMS_ENCODER_STANDARD despite the similar name (see
+// DOCUMENTATIE/sms_send_format_choice.md). The header format and its CRC are verified
+// byte-for-byte against two real captured messages; the per-block checksum and the rate-3/4
+// radio-transmit path are NOT -- see the comments on smsBuildAnytoneDataBlock() and
+// HR-C6000.c's smsRate34Active.
 typedef enum
 {
 	SMS_ENCODER_MOTOROLA = 0,
-	SMS_ENCODER_STANDARD
+	SMS_ENCODER_STANDARD,
+	SMS_ENCODER_ANYTONE
 } smsEncoderFormat_t;
 
 typedef enum
@@ -101,6 +118,11 @@ typedef struct
 	uint8_t csbk[SMS_BLOCK_DATA_BYTES];
 	uint8_t dataHeader[SMS_BLOCK_DATA_BYTES];
 	uint8_t blocks[SMS_MAX_DATA_BLOCKS][SMS_BLOCK_DATA_BYTES];
+	// When isRate34 is set (format == SMS_ENCODER_ANYTONE), anytoneBlocks (not blocks) holds the
+	// message body, blockCount rows of SMS_ANYTONE_BLOCK_TOTAL_BYTES each (2-byte per-block
+	// serial-number+CRC header + 16 payload bytes) -- see HRC6000StartQueuedSMS() in HR-C6000.c.
+	bool isRate34;
+	uint8_t anytoneBlocks[SMS_ANYTONE_MAX_DATA_BLOCKS][SMS_ANYTONE_BLOCK_TOTAL_BYTES];
 } smsPreparedMessage_t;
 
 typedef struct

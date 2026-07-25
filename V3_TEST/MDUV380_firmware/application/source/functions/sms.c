@@ -250,8 +250,13 @@ static bool smsScheduleQueuedMessageTransmissionInternal(uint32_t destinationId,
 static void smsProcessPendingOutgoingStart(void);
 static void smsSetPendingTxEvent(smsTxEvent_t event);
 static smsPackResult_t smsConvertTextToUtf16LeUpper(const char *text, uint8_t *payload, uint16_t *payloadLength);
+static smsPackResult_t smsConvertTextToUtf16Be(const char *text, uint8_t *payload, uint16_t *payloadLength);
 static smsPackResult_t smsBuildMotorolaPayload(uint32_t destinationId, uint32_t sourceId, const char *text, uint8_t *payload, uint16_t *payloadLength, uint8_t *padOctetCount);
 static smsPackResult_t smsBuildStandardPayload(uint32_t destinationId, uint32_t sourceId, const char *text, uint8_t *payload, uint16_t *payloadLength, uint8_t *padOctetCount);
+static uint16_t smsCrc9(uint8_t serialNumber, const uint8_t *data, uint8_t dataLength);
+static void smsBuildAnytoneDataBlock(uint8_t *block, uint8_t serialNumber, const uint8_t *payload, uint8_t payloadLength);
+static void smsBuildDefinedShortDataHeader(smsPreparedMessage_t *message, uint8_t blockCount);
+static smsPackResult_t smsPackAnytoneMessage(uint32_t destinationId, uint32_t sourceId, const char *text, smsPreparedMessage_t *message);
 static bool smsDecodeMotorolaPayload(const uint8_t *payload, uint16_t totalLength, uint8_t padOctets, char *textOut);
 static bool smsDecodeStandardPayload(const uint8_t *payload, uint16_t totalLength, uint8_t padOctets, char *textOut);
 static bool smsDecodeUtf8Payload(const uint8_t *payload, uint16_t payloadLength, char *textOut);
@@ -2886,6 +2891,187 @@ static void smsBuildStatusDataHeader(smsPreparedMessage_t *message)
 	message->dataHeader[11] = (uint8_t)(crc & 0xFFU) ^ 0xCCU;
 }
 
+// DD_HEAD (Defined Data short data packet Header) PDU -- ETSI TS 102 361-1 clause 9.2.12/table
+// 9.17C. VERIFIED: this exact byte layout plus CRC recipe (CRC-CCITT over bytes 0-9, XORed with
+// the "Data Header" mask 0xCCCC from table B.21) reproduces both real captured Defined Short Data
+// headers this project has on file, byte-for-byte (0xD875 and 0x3A70) -- see
+// DOCUMENTATIE/sms_send_format_choice.md.
+//
+// Byte 8 (0x53 = DD format 010100 + SARQ(1) + Full Message Flag(1)) is set to the exact constant
+// value both real captures used rather than independently derived, since the DD format field's
+// own meaning was never decoded -- matching a real device's bytes exactly is safer than a
+// plausible-looking guess.
+static void smsBuildDefinedShortDataHeader(smsPreparedMessage_t *message, uint8_t blockCount)
+{
+	uint16_t crc;
+
+	memset(message->dataHeader, 0, sizeof(message->dataHeader));
+	message->dataHeader[0] = (uint8_t)(0x40U | (blockCount & 0x30U) | 0x0DU); // A=1(response requested) + AB[5:4] + Format(DPF)=Defined Short Data
+	message->dataHeader[1] = (uint8_t)(0xA0U | (blockCount & 0x0FU));         // SAP=0xA (Defined Data, ETSI 9.2.12) + AB[3:0]
+	message->dataHeader[2] = (uint8_t)((message->destinationId >> 16) & 0xFFU);
+	message->dataHeader[3] = (uint8_t)((message->destinationId >> 8) & 0xFFU);
+	message->dataHeader[4] = (uint8_t)(message->destinationId & 0xFFU);
+	message->dataHeader[5] = (uint8_t)((message->sourceId >> 16) & 0xFFU);
+	message->dataHeader[6] = (uint8_t)((message->sourceId >> 8) & 0xFFU);
+	message->dataHeader[7] = (uint8_t)(message->sourceId & 0xFFU);
+	message->dataHeader[8] = 0x53U;                                           // DD format + SARQ + Full Message Flag -- matches both real captures exactly
+	message->dataHeader[9] = 0x00U;                                           // Bit Padding -- unused by this firmware's own RX decode; left 0
+
+	crc = smsCrc16Ccitt(message->dataHeader, 10U);
+	message->dataHeader[10] = (uint8_t)(((crc >> 8) & 0xFFU) ^ 0xCCU);
+	message->dataHeader[11] = (uint8_t)((crc & 0xFFU) ^ 0xCCU);
+}
+
+// CRC-9 per ETSI TS 102 361-1 clause B.3.10 (G9(x) = x^9+x^6+x^4+x^3+1, i.e. polynomial 0x04D in
+// the low 9 bits with the implicit x^9 term dropped, same convention as smsCrc16Ccitt's 0x1021),
+// masked with the "Rate 3/4 Data Continuation" mask 0x1FF from table B.21 -- mirrors the header
+// CRC recipe above (raw CRC XORed with a Data-Type-specific mask) but has NOT been verified
+// against any real captured block, since only headers were ever captured on this project (see
+// smsBuildAnytoneDataBlock()'s comment). Processes the 7-bit block serial number followed by the
+// data bytes, MSB-first, as one continuous bitstream -- per clause 8.2.2.2, "The 9 bit CRC is
+// calculated over 7-bit data block serial number concatenated with user data in the block."
+static uint16_t smsCrc9(uint8_t serialNumber, const uint8_t *data, uint8_t dataLength)
+{
+	uint16_t crc = 0x0000U;
+
+	for (int8_t bitIndex = 6; bitIndex >= 0; bitIndex--)
+	{
+		uint8_t bit = (uint8_t)((serialNumber >> bitIndex) & 0x01U);
+		uint8_t topBit = (uint8_t)((crc >> 8) & 0x01U);
+
+		crc = (uint16_t)(((crc << 1) | bit) & 0x1FFU);
+		if (topBit != 0U)
+		{
+			crc ^= 0x04DU;
+		}
+	}
+
+	for (uint8_t index = 0U; index < dataLength; index++)
+	{
+		for (int8_t bitIndex = 7; bitIndex >= 0; bitIndex--)
+		{
+			uint8_t bit = (uint8_t)((data[index] >> bitIndex) & 0x01U);
+			uint8_t topBit = (uint8_t)((crc >> 8) & 0x01U);
+
+			crc = (uint16_t)(((crc << 1) | bit) & 0x1FFU);
+			if (topBit != 0U)
+			{
+				crc ^= 0x04DU;
+			}
+		}
+	}
+
+	return (uint16_t)((crc ^ 0x1FFU) & 0x1FFU);
+}
+
+// Rate-3/4 Confirmed data block -- ETSI TS 102 361-1 clause 8.2.2.2/figure 8.14: 2 header bytes
+// (7-bit block serial number in bits 7:1 of octet 0, 9-bit CRC-9 spanning bit 0 of octet 0 through
+// all of octet 1) followed by 16 payload bytes (zero-padded if this is a short/last block).
+//
+// UNVERIFIED: unlike the header above, no real rate-3/4 data block was ever captured on this
+// project to check this byte-for-byte against -- this is a best-effort implementation straight
+// from the spec text, not proven correct. A real Anytone radio or the network may reject it. See
+// DOCUMENTATIE/sms_send_format_choice.md before trusting this over the air.
+static void smsBuildAnytoneDataBlock(uint8_t *block, uint8_t serialNumber, const uint8_t *payload, uint8_t payloadLength)
+{
+	uint8_t data[SMS_ANYTONE_BLOCK_PAYLOAD_BYTES];
+	uint16_t crc9;
+
+	memset(data, 0, sizeof(data));
+	if (payloadLength > SMS_ANYTONE_BLOCK_PAYLOAD_BYTES)
+	{
+		payloadLength = SMS_ANYTONE_BLOCK_PAYLOAD_BYTES;
+	}
+	memcpy(data, payload, payloadLength);
+
+	crc9 = smsCrc9((uint8_t)(serialNumber & 0x7FU), data, SMS_ANYTONE_BLOCK_PAYLOAD_BYTES);
+
+	block[0] = (uint8_t)(((serialNumber & 0x7FU) << 1) | ((crc9 >> 8) & 0x01U));
+	block[1] = (uint8_t)(crc9 & 0xFFU);
+	memcpy(&block[SMS_ANYTONE_BLOCK_HEADER_BYTES], data, SMS_ANYTONE_BLOCK_PAYLOAD_BYTES);
+}
+
+// Real network-relayed Defined Short Data messages decode as plain UTF-16BE text starting at byte
+// 0 (see smsDecodeUtf16BePayload(), already proven against real captures) -- no IP/UDP wrapper,
+// no forced uppercasing (unlike this firmware's own Motorola format). This is the mirror-image
+// encoder: preserves case, rejects the same narrow non-printable set smsConvertTextToUtf16LeUpper
+// does for consistency.
+static smsPackResult_t smsConvertTextToUtf16Be(const char *text, uint8_t *payload, uint16_t *payloadLength)
+{
+	uint16_t index = 0;
+
+	while (*text != 0)
+	{
+		unsigned char character = (unsigned char)(*text++);
+
+		if (index >= SMS_MAX_UTF16_PAYLOAD_BYTES)
+		{
+			return SMS_PACK_ERROR_TOO_LONG;
+		}
+
+		if ((character < 0x20U) || ((character > 0x7EU) && (character < 0xA0U)))
+		{
+			if ((character != '\r') && (character != '\n') && (character != '\t'))
+			{
+				return SMS_PACK_ERROR_UNSUPPORTED_CHAR;
+			}
+
+			if (character == '\t')
+			{
+				character = ' ';
+			}
+		}
+
+		payload[index++] = 0x00U;
+		payload[index++] = character;
+	}
+
+	*payloadLength = index;
+	return ((index == 0U) ? SMS_PACK_ERROR_EMPTY : SMS_PACK_OK);
+}
+
+// Builds a full SMS_ENCODER_ANYTONE message: header (verified), CSBK preamble (reused unchanged
+// from the other formats -- ASSUMED, not independently confirmed, that Defined Short Data uses
+// the same preamble shape), and rate-3/4 data blocks (unverified, see smsBuildAnytoneDataBlock()).
+static smsPackResult_t smsPackAnytoneMessage(uint32_t destinationId, uint32_t sourceId, const char *text, smsPreparedMessage_t *message)
+{
+	uint8_t utf16Payload[SMS_MAX_UTF16_PAYLOAD_BYTES];
+	uint16_t textByteLength = 0U;
+	smsPackResult_t result;
+	uint8_t blockCount;
+
+	result = smsConvertTextToUtf16Be(text, utf16Payload, &textByteLength);
+	if (result != SMS_PACK_OK)
+	{
+		return result;
+	}
+
+	blockCount = (uint8_t)((textByteLength + SMS_ANYTONE_BLOCK_PAYLOAD_BYTES - 1U) / SMS_ANYTONE_BLOCK_PAYLOAD_BYTES);
+	if (blockCount > SMS_ANYTONE_MAX_DATA_BLOCKS)
+	{
+		return SMS_PACK_ERROR_TOO_LONG;
+	}
+
+	message->isRate34 = true;
+	message->blockCount = blockCount;
+	message->payloadLength = textByteLength;
+	message->padOctetCount = 0U;
+
+	for (uint8_t block = 0U; block < blockCount; block++)
+	{
+		uint16_t offset = (uint16_t)(block * SMS_ANYTONE_BLOCK_PAYLOAD_BYTES);
+		uint8_t bytesRemaining = (uint8_t)(textByteLength - offset);
+		uint8_t bytesToCopy = ((bytesRemaining < SMS_ANYTONE_BLOCK_PAYLOAD_BYTES) ? bytesRemaining : SMS_ANYTONE_BLOCK_PAYLOAD_BYTES);
+
+		smsBuildAnytoneDataBlock(message->anytoneBlocks[block], block, &utf16Payload[offset], bytesToCopy);
+	}
+
+	smsBuildCsbk(message);
+	smsBuildDefinedShortDataHeader(message, blockCount);
+
+	return SMS_PACK_OK;
+}
+
 static smsPackResult_t smsConvertTextToUtf16LeUpper(const char *text, uint8_t *payload, uint16_t *payloadLength)
 {
 	uint16_t index = 0;
@@ -2952,6 +3138,14 @@ smsPackResult_t smsPackMessage(uint32_t destinationId, uint32_t sourceId, const 
 	message->destinationId = destinationId;
 	message->sourceId = sourceId;
 	message->requestAck = true;
+
+	if (format == SMS_ENCODER_ANYTONE)
+	{
+		// Rate-3/4 blocks don't fit the shared 12-byte payload[]/blocks[] path below at all --
+		// smsPackAnytoneMessage() builds message->anytoneBlocks[] directly instead.
+		return smsPackAnytoneMessage(destinationId, sourceId, text, message);
+	}
+
 	memset(payload, 0, sizeof(payload));
 
 	if (format == SMS_ENCODER_STANDARD)
