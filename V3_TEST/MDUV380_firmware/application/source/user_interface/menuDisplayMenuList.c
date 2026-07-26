@@ -154,7 +154,7 @@ static void updateScreen(bool isFirstRun)
 				}
 				else if (menuDataGlobal.currentMenuList[mNum].menuNum == MENU_GAME_SNAKE)
 				{
-					menuName = "Play Snake";
+					menuName = "Snake";
 					customString = true;
 				}
 				else if (menuDataGlobal.currentMenuList[mNum].menuNum == MENU_GAMES_MENU)

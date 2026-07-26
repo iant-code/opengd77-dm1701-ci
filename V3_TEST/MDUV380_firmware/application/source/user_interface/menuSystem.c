@@ -709,7 +709,7 @@ const menuItemsList_t menuDataContact =
 
 static const menuItemNewData_t gamesMenuItems[] =
 {
-	{ 0, MENU_GAME_SNAKE }, // stringOffset unused -- menuDisplayMenuList.c overrides the label to "Play Snake"
+	{ 0, MENU_GAME_SNAKE }, // stringOffset unused -- menuDisplayMenuList.c overrides the label to "Snake"
 	{ 0, MENU_GAME_SPACE }, // stringOffset unused -- menuDisplayMenuList.c overrides the label to "Space"
 };
 

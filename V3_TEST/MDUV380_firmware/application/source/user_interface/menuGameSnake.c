@@ -29,11 +29,26 @@
 
 #define SNAKE_CELL_SIZE       4
 #define SNAKE_PLAYFIELD_Y     MENU_HEADER_HEIGHT
-#define SNAKE_COLS            (DISPLAY_SIZE_X / SNAKE_CELL_SIZE)
-#define SNAKE_ROWS            ((DISPLAY_SIZE_Y - SNAKE_PLAYFIELD_Y) / SNAKE_CELL_SIZE)
+// Cells kept clear on every edge, so the snake/food never sit right on the physical screen border.
+#define SNAKE_BORDER_MARGIN   2
+#define SNAKE_COLS            ((DISPLAY_SIZE_X / SNAKE_CELL_SIZE) - (2 * SNAKE_BORDER_MARGIN))
+#define SNAKE_ROWS            (((DISPLAY_SIZE_Y - SNAKE_PLAYFIELD_Y) / SNAKE_CELL_SIZE) - (2 * SNAKE_BORDER_MARGIN))
 #define SNAKE_MAX_LENGTH      (SNAKE_COLS * SNAKE_ROWS)
 #define SNAKE_TICK_MS         200
 #define SNAKE_INITIAL_LENGTH  3
+
+// Colour-and-shape differentiated segments instead of identical flat squares: body cells use a
+// small corner radius (displayFillRoundRect) for a softer, more organic look than hard right
+// angles, the head is a brighter shade with a single directional "eye" pixel, and the tail is a
+// small circle to taper the end -- all still on the same 4x4 grid cell the collision logic uses,
+// so none of this touches gameplay/grid positions, purely how each cell is painted.
+#define SNAKE_COLOUR_BODY      0x2E7D32U // medium-dark green
+#define SNAKE_COLOUR_HEAD      0x66BB6AU // brighter green
+#define SNAKE_COLOUR_TAIL      0x1B5E20U // darker green
+#define SNAKE_COLOUR_EYE       0xFFFFFFU // white
+#define SNAKE_COLOUR_APPLE_HI  0xE53935U // bright red (flash phase A)
+#define SNAKE_COLOUR_APPLE_LO  0x8E1F1CU // dim red (flash phase B)
+#define SNAKE_COLOUR_STEM      0x5D4037U // brown
 
 typedef enum
 {
@@ -58,6 +73,7 @@ static snakeSegment_t food;
 static bool gameOver;
 static uint32_t lastMoveTime;
 static uint32_t rngState;
+static bool foodFlashOn;
 
 static void updateScreen(bool isFirstRun);
 static void handleEvent(uiEvent_t *ev);
@@ -67,7 +83,10 @@ static void advanceSnake(void);
 static void setDirection(snakeDirection_t newDirection);
 static uint32_t nextRandom(void);
 static bool positionOccupiesSegment(uint8_t col, uint8_t row, int count);
-static void drawCell(uint8_t col, uint8_t row, bool erase);
+static void cellOrigin(uint8_t col, uint8_t row, int16_t *x, int16_t *y);
+static void drawSnakeBody(uint8_t col, uint8_t row);
+static void drawSnakeHead(uint8_t col, uint8_t row);
+static void drawSnakeTail(uint8_t col, uint8_t row);
 static void drawFood(void);
 
 menuStatus_t menuGameSnake(uiEvent_t *ev, bool isFirstRun)
@@ -91,6 +110,7 @@ menuStatus_t menuGameSnake(uiEvent_t *ev, bool isFirstRun)
 		if ((gameOver == false) && ((ev->time - lastMoveTime) > SNAKE_TICK_MS))
 		{
 			lastMoveTime = ev->time;
+			foodFlashOn = !foodFlashOn;
 			advanceSnake();
 			updateScreen(false);
 		}
@@ -115,6 +135,7 @@ static void resetGame(void)
 	currentDirection = SNAKE_DIR_RIGHT;
 	pendingDirection = SNAKE_DIR_RIGHT;
 	gameOver = false;
+	foodFlashOn = false;
 
 	rngState = ticksGetMillis();
 	placeFood();
@@ -245,24 +266,92 @@ static void advanceSnake(void)
 	}
 }
 
-static void drawCell(uint8_t col, uint8_t row, bool erase)
+// Converts a grid cell to its top-left pixel origin -- the one piece of coordinate math every
+// draw function below shares.
+static void cellOrigin(uint8_t col, uint8_t row, int16_t *x, int16_t *y)
 {
-	int16_t x = (int16_t)(col * SNAKE_CELL_SIZE);
-	int16_t y = (int16_t)(SNAKE_PLAYFIELD_Y + (row * SNAKE_CELL_SIZE));
+	*x = (int16_t)((col + SNAKE_BORDER_MARGIN) * SNAKE_CELL_SIZE);
+	*y = (int16_t)(SNAKE_PLAYFIELD_Y + ((row + SNAKE_BORDER_MARGIN) * SNAKE_CELL_SIZE));
+}
 
-	// displayFillRect() called directly (not via the VLine/HLine wrappers) uses the opposite
-	// isInverted convention to every other primitive: true -> background, false -> foreground.
-	displayFillRect(x, y, SNAKE_CELL_SIZE, SNAKE_CELL_SIZE, erase);
+static void drawSnakeBody(uint8_t col, uint8_t row)
+{
+	int16_t x, y;
+	uint16_t savedFg, savedBg;
+
+	cellOrigin(col, row, &x, &y);
+	displayGetForegroundAndBackgroundColours(&savedFg, &savedBg);
+	displaySetForegroundAndBackgroundColours(displayConvertRGB888ToNative(SNAKE_COLOUR_BODY), savedBg);
+	// Small corner radius (not a hard-edged square) for a softer, more organic body segment look.
+	displayFillRoundRect(x, y, SNAKE_CELL_SIZE, SNAKE_CELL_SIZE, 1, true);
+	displaySetForegroundAndBackgroundColours(savedFg, savedBg);
+}
+
+static void drawSnakeHead(uint8_t col, uint8_t row)
+{
+	int16_t x, y;
+	uint16_t savedFg, savedBg;
+	int16_t eyeX, eyeY;
+
+	cellOrigin(col, row, &x, &y);
+	displayGetForegroundAndBackgroundColours(&savedFg, &savedBg);
+	displaySetForegroundAndBackgroundColours(displayConvertRGB888ToNative(SNAKE_COLOUR_HEAD), savedBg);
+	displayFillRoundRect(x, y, SNAKE_CELL_SIZE, SNAKE_CELL_SIZE, 1, true);
+
+	// A single "eye" pixel offset toward the direction of travel, so the head visibly faces the
+	// way it's moving rather than looking like just another body segment.
+	switch (currentDirection)
+	{
+		case SNAKE_DIR_UP:
+			eyeX = (int16_t)(x + 1); eyeY = y;
+			break;
+		case SNAKE_DIR_DOWN:
+			eyeX = (int16_t)(x + 1); eyeY = (int16_t)(y + SNAKE_CELL_SIZE - 1);
+			break;
+		case SNAKE_DIR_LEFT:
+			eyeX = x; eyeY = (int16_t)(y + 1);
+			break;
+		case SNAKE_DIR_RIGHT:
+		default:
+			eyeX = (int16_t)(x + SNAKE_CELL_SIZE - 1); eyeY = (int16_t)(y + 1);
+			break;
+	}
+
+	displaySetForegroundAndBackgroundColours(displayConvertRGB888ToNative(SNAKE_COLOUR_EYE), savedBg);
+	displaySetPixel(eyeX, eyeY, true);
+
+	displaySetForegroundAndBackgroundColours(savedFg, savedBg);
+}
+
+static void drawSnakeTail(uint8_t col, uint8_t row)
+{
+	int16_t x, y;
+	uint16_t savedFg, savedBg;
+
+	cellOrigin(col, row, &x, &y);
+	displayGetForegroundAndBackgroundColours(&savedFg, &savedBg);
+	displaySetForegroundAndBackgroundColours(displayConvertRGB888ToNative(SNAKE_COLOUR_TAIL), savedBg);
+	// A small circle instead of a square tapers the tail end, rather than it just stopping abruptly.
+	displayFillCircle((int16_t)(x + (SNAKE_CELL_SIZE / 2)), (int16_t)(y + (SNAKE_CELL_SIZE / 2)), (SNAKE_CELL_SIZE / 2), true);
+	displaySetForegroundAndBackgroundColours(savedFg, savedBg);
 }
 
 static void drawFood(void)
 {
+	int16_t x, y;
 	uint16_t savedFg, savedBg;
+	uint32_t appleColour = (foodFlashOn ? SNAKE_COLOUR_APPLE_HI : SNAKE_COLOUR_APPLE_LO);
 
+	cellOrigin(food.col, food.row, &x, &y);
 	displayGetForegroundAndBackgroundColours(&savedFg, &savedBg);
-	displaySetForegroundAndBackgroundColours(displayConvertRGB888ToNative(0xD32F2FU), savedBg); // red, matches the icon palette
 
-	drawCell(food.col, food.row, false);
+	// Round instead of square reads as an apple rather than a generic block, and flashing between
+	// a bright/dim red each tick (foodFlashOn, toggled once per game tick) draws the eye to it.
+	displaySetForegroundAndBackgroundColours(displayConvertRGB888ToNative(appleColour), savedBg);
+	displayFillCircle((int16_t)(x + (SNAKE_CELL_SIZE / 2)), (int16_t)(y + (SNAKE_CELL_SIZE / 2)), (SNAKE_CELL_SIZE / 2), true);
+
+	displaySetForegroundAndBackgroundColours(displayConvertRGB888ToNative(SNAKE_COLOUR_STEM), savedBg);
+	displaySetPixel((int16_t)(x + (SNAKE_CELL_SIZE / 2)), y, true);
 
 	displaySetForegroundAndBackgroundColours(savedFg, savedBg);
 }
@@ -280,7 +369,18 @@ static void updateScreen(bool isFirstRun)
 
 	for (int i = 0; i < snakeLength; i++)
 	{
-		drawCell(segments[i].col, segments[i].row, false);
+		if (i == 0)
+		{
+			drawSnakeHead(segments[i].col, segments[i].row);
+		}
+		else if (i == (snakeLength - 1))
+		{
+			drawSnakeTail(segments[i].col, segments[i].row);
+		}
+		else
+		{
+			drawSnakeBody(segments[i].col, segments[i].row);
+		}
 	}
 
 	drawFood();
