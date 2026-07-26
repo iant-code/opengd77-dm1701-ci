@@ -58,8 +58,15 @@ typedef struct
 	ticksTimer_t timeoutTimer;
 } csbkPendingOutbound_t;
 
+typedef struct
+{
+	bool pending;
+	uint32_t sourceId;
+} csbkIncomingAlertNotification_t;
+
 static csbkQueuedRequest_t queuedRequest = { 0 };
 static csbkPendingOutbound_t pendingOutbound = { 0 };
+static csbkIncomingAlertNotification_t incomingAlertNotification = { 0 };
 
 static uint16_t csbkCrc16Ccitt(const uint8_t *data, uint8_t length)
 {
@@ -84,18 +91,24 @@ static uint16_t csbkCrc16Ccitt(const uint8_t *data, uint8_t length)
 	return crc;
 }
 
+// Byte[3] value that marks an outbound Radio Check frame as the REQUEST direction (as opposed to
+// the ack/reply, which clears this) -- verified against MMDVMHost's DMRCSBK.cpp, which
+// disambiguates Radio Check's request vs ack this way since both directions share one opcode
+// (CSBKO_RADIO_CHECK), unlike Call Alert which uses two distinct opcodes instead.
+#define CSBK_RADIO_CHECK_REQUEST_MARKER 0x80U
+
 // Builds a complete, self-contained standalone CSBK frame (opcode + FID + service byte +
 // dest/source addresses + CRC). Unlike sms.c's Preamble CSBK, this is the whole PDU -- nothing
 // else is transmitted after it besides repeats of itself, see csbkOnly in smsPreparedMessage_t.
-static void csbkBuildFrame(uint8_t *frame, csbkOpcode_t opcode, uint8_t serviceByte, uint32_t destinationId, uint32_t sourceId)
+static void csbkBuildFrame(uint8_t *frame, csbkOpcode_t opcode, uint8_t serviceByte, uint8_t directionByte, uint32_t destinationId, uint32_t sourceId)
 {
 	uint16_t crc;
 
 	memset(frame, 0, CSBK_LC_DATA_LENGTH);
 	frame[0] = (uint8_t)(0x80U | (opcode & 0x3FU)); // Last Block=1, Protect Flag=0, CSBKO
-	frame[1] = 0x00U;                                // FID=0 (standard, non-vendor)
+	frame[1] = 0x00U;                                // FID=0 (standard, non-vendor) -- MMDVMHost's own CSBK dispatch doesn't check this at all, see csbk.h.
 	frame[2] = serviceByte;
-	frame[3] = 0x00U;
+	frame[3] = directionByte;
 	frame[4] = (uint8_t)((destinationId >> 16) & 0xFFU);
 	frame[5] = (uint8_t)((destinationId >> 8) & 0xFFU);
 	frame[6] = (uint8_t)(destinationId & 0xFFU);
@@ -117,9 +130,26 @@ void csbkInit(void)
 {
 	memset(&queuedRequest, 0, sizeof(queuedRequest));
 	memset(&pendingOutbound, 0, sizeof(pendingOutbound));
+	memset(&incomingAlertNotification, 0, sizeof(incomingAlertNotification));
 }
 
-static bool csbkStartRequest(csbkKind_t kind, csbkOpcode_t opcode, uint32_t destinationId, uint32_t sourceId)
+bool csbkConsumeIncomingCallAlert(uint32_t *sourceIdOut)
+{
+	if (!incomingAlertNotification.pending)
+	{
+		return false;
+	}
+
+	if (sourceIdOut != NULL)
+	{
+		*sourceIdOut = incomingAlertNotification.sourceId;
+	}
+
+	incomingAlertNotification.pending = false;
+	return true;
+}
+
+static bool csbkStartRequest(csbkKind_t kind, csbkOpcode_t opcode, uint8_t directionByte, uint32_t destinationId, uint32_t sourceId)
 {
 	if (!csbkIdValid(destinationId) || !csbkIdValid(sourceId) ||
 		queuedRequest.queued || (pendingOutbound.state == CSBK_PENDING_WAITING) ||
@@ -137,7 +167,7 @@ static bool csbkStartRequest(csbkKind_t kind, csbkOpcode_t opcode, uint32_t dest
 	queuedRequest.kind = kind;
 	queuedRequest.destinationId = destinationId;
 	queuedRequest.sourceId = sourceId;
-	csbkBuildFrame(queuedRequest.frame, opcode, 0x00U, destinationId, sourceId);
+	csbkBuildFrame(queuedRequest.frame, opcode, 0x00U, directionByte, destinationId, sourceId);
 	queuedRequest.queued = true;
 
 #if CSBK_DEBUG_USB_SERIAL
@@ -150,12 +180,12 @@ static bool csbkStartRequest(csbkKind_t kind, csbkOpcode_t opcode, uint32_t dest
 
 bool csbkSendCallAlert(uint32_t destinationId, uint32_t sourceId)
 {
-	return csbkStartRequest(CSBK_KIND_CALL_ALERT, CSBKO_CALL_ALERT, destinationId, sourceId);
+	return csbkStartRequest(CSBK_KIND_CALL_ALERT, CSBKO_CALL_ALERT, 0x00U, destinationId, sourceId);
 }
 
 bool csbkSendRadioCheck(uint32_t destinationId, uint32_t sourceId)
 {
-	return csbkStartRequest(CSBK_KIND_RADIO_CHECK, CSBKO_RADIO_CHECK_REQ, destinationId, sourceId);
+	return csbkStartRequest(CSBK_KIND_RADIO_CHECK, CSBKO_RADIO_CHECK, CSBK_RADIO_CHECK_REQUEST_MARKER, destinationId, sourceId);
 }
 
 csbkPendingState_t csbkGetPendingResult(uint32_t *sourceIdOut, csbkKind_t *kindOut)
@@ -185,10 +215,8 @@ void csbkHandleReceivedFrame(const uint8_t *buf, uint8_t length)
 	uint16_t crc;
 	uint16_t receivedCrc;
 	uint8_t opcode;
-	uint32_t destId;
-	uint32_t srcId;
 
-	if ((buf == NULL) || (length < CSBK_LC_DATA_LENGTH))
+	if ((buf == NULL) || (length < CSBK_LC_DATA_LENGTH) || (trxDMRID == 0U))
 	{
 		return;
 	}
@@ -202,23 +230,32 @@ void csbkHandleReceivedFrame(const uint8_t *buf, uint8_t length)
 	}
 
 	opcode = (uint8_t)(buf[0] & 0x3FU);
-	destId = (((uint32_t)buf[4] << 16) | ((uint32_t)buf[5] << 8) | buf[6]);
-	srcId  = (((uint32_t)buf[7] << 16) | ((uint32_t)buf[8] << 8) | buf[9]);
 
-	if ((destId != trxDMRID) || (trxDMRID == 0U))
-	{
-		return;
-	}
-
+	// Radio Check's ack (unlike its request, and unlike Call Alert's request/ack pair) swaps which
+	// address field is "us" vs "them" -- verified against MMDVMHost's DMRCSBK.cpp, which reads
+	// dst=bytes4-6/src=bytes7-9 for a request (byte[3]==0x80) but src=bytes4-6/dst=bytes7-9 for the
+	// non-request case. So the generic dest/src extraction + "is this for us" check can't happen
+	// once, generically, before the switch the way it used to -- each case below extracts and
+	// validates its own fields. See DOCUMENTATIE/csbk_call_alert_radio_check_status.md.
 	switch (opcode)
 	{
 		case CSBKO_CALL_ALERT:
-		case CSBKO_RADIO_CHECK_REQ:
-			// Silent for Radio Check (no UI, no sound -- that's what makes it a "check" rather than
-			// an alert); Call Alert notification/tone is left to the UI layer to add on top of this
-			// once this has been confirmed against real hardware -- the protocol-correct auto-Ack
-			// is the part that matters for interop and is implemented here unconditionally.
-			(void)csbkStartRequest(CSBK_KIND_CALL_ALERT, CSBKO_ACK, srcId, trxDMRID);
+		{
+			uint32_t destId = (((uint32_t)buf[4] << 16) | ((uint32_t)buf[5] << 8) | buf[6]);
+			uint32_t srcId  = (((uint32_t)buf[7] << 16) | ((uint32_t)buf[8] << 8) | buf[9]);
+
+			if (destId != trxDMRID)
+			{
+				return;
+			}
+
+			// Flag the tone/popup for the UI layer to show (applicationMain.c polls
+			// csbkConsumeIncomingCallAlert()) -- separate from the protocol-correct auto-Ack below,
+			// which happens unconditionally regardless of whether anything ever consumes this flag.
+			incomingAlertNotification.pending = true;
+			incomingAlertNotification.sourceId = srcId;
+
+			(void)csbkStartRequest(CSBK_KIND_CALL_ALERT, CSBKO_ACK, 0x00U, srcId, trxDMRID);
 			if (queuedRequest.queued)
 			{
 				// Tag the queued Ack's service byte so the far end can tell which request it answers.
@@ -230,19 +267,68 @@ void csbkHandleReceivedFrame(const uint8_t *buf, uint8_t length)
 				}
 			}
 			break;
+		}
 
-		case CSBKO_ACK:
-			if ((pendingOutbound.state == CSBK_PENDING_WAITING) && (pendingOutbound.destinationId == srcId))
+		case CSBKO_RADIO_CHECK:
+			if (buf[3] == CSBK_RADIO_CHECK_REQUEST_MARKER)
 			{
-				uint8_t ackedService = buf[2];
+				// Incoming REQUEST: dst=bytes4-6 (us), src=bytes7-9 (asker) -- same field meaning as
+				// Call Alert's request.
+				uint32_t destId = (((uint32_t)buf[4] << 16) | ((uint32_t)buf[5] << 8) | buf[6]);
+				uint32_t srcId  = (((uint32_t)buf[7] << 16) | ((uint32_t)buf[8] << 8) | buf[9]);
 
-				if (((ackedService == CSBKO_CALL_ALERT) && (pendingOutbound.kind == CSBK_KIND_CALL_ALERT)) ||
-					((ackedService == CSBKO_RADIO_CHECK_REQ) && (pendingOutbound.kind == CSBK_KIND_RADIO_CHECK)))
+				if (destId != trxDMRID)
+				{
+					return;
+				}
+
+				// Silent auto-reply: same opcode, byte[3] cleared (not the request marker) marks
+				// this as the ack, with the fields swapped per the asymmetric convention above --
+				// our own ID goes at bytes4-6 this time (not the asker's), asker's ID at bytes7-9.
+				(void)csbkStartRequest(CSBK_KIND_RADIO_CHECK, CSBKO_RADIO_CHECK, 0x00U, trxDMRID, srcId);
+			}
+			else
+			{
+				// Incoming ACK to our own outbound request: src=bytes4-6 (the radio that answered),
+				// dst=bytes7-9 (us).
+				uint32_t ackSrcId = (((uint32_t)buf[4] << 16) | ((uint32_t)buf[5] << 8) | buf[6]);
+				uint32_t ackDstId = (((uint32_t)buf[7] << 16) | ((uint32_t)buf[8] << 8) | buf[9]);
+
+				if (ackDstId != trxDMRID)
+				{
+					return;
+				}
+
+				if ((pendingOutbound.state == CSBK_PENDING_WAITING) &&
+					(pendingOutbound.kind == CSBK_KIND_RADIO_CHECK) &&
+					(pendingOutbound.destinationId == ackSrcId))
 				{
 					pendingOutbound.state = CSBK_PENDING_ACKED;
 				}
 			}
 			break;
+
+		case CSBKO_ACK:
+		{
+			uint32_t destId = (((uint32_t)buf[4] << 16) | ((uint32_t)buf[5] << 8) | buf[6]);
+			uint32_t srcId  = (((uint32_t)buf[7] << 16) | ((uint32_t)buf[8] << 8) | buf[9]);
+
+			if (destId != trxDMRID)
+			{
+				return;
+			}
+
+			// CSBKO_ACK is Call Alert's ack only -- Radio Check's ack reuses CSBKO_RADIO_CHECK
+			// itself (handled above), so no need to check ackedService against it here.
+			if ((pendingOutbound.state == CSBK_PENDING_WAITING) &&
+				(pendingOutbound.kind == CSBK_KIND_CALL_ALERT) &&
+				(pendingOutbound.destinationId == srcId) &&
+				(buf[2] == CSBKO_CALL_ALERT))
+			{
+				pendingOutbound.state = CSBK_PENDING_ACKED;
+			}
+			break;
+		}
 
 		default:
 			// Unrecognised CSBKO -- per spec, compliant equipment ignores these. Do the same.

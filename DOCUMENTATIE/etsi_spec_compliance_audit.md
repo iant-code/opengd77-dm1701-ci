@@ -54,6 +54,29 @@ evidently more lenient here than the literal spec text -- likely common, pragmat
 behaviour rather than something unique to this firmware. Recorded here as a known, confirmed
 deviation in case it ever matters for interop with a stricter receiver, not as an action item.
 
+## Cross-referenced against real MMDVMHost source (not just spec text)
+
+The user has a full local checkout of WPSD's source (`~/Downloads/WPSD-Bin_source/MMDVMHost/`,
+see [[reference_wpsd_mmdvmhost_source]]) -- a real, widely-deployed, interoperating DMR gateway,
+which lets some of the above be independently confirmed against working code rather than spec
+text alone:
+
+- **Confirmed independently**: the Defined Short Data header's block-count field
+  (`(byte0 & 0x30) + (byte1 & 0x0F)`) and the Full-Message-Flag/SARQ bit positions in byte 8
+  (`DMRDataHeader.cpp`'s `m_F`/`m_S` for `DPF_DEFINED_SHORT`) match this firmware's existing RX
+  code and the new Anytone TX encoder exactly.
+- **Confirmed independently, real-world harmlessness of the "A bit" deviation**: MMDVMHost's own
+  header parser reads the Response-Requested bit unconditionally regardless of DPF, with no
+  validation against "must be 0 for Unconfirmed" -- real gateway software doesn't enforce that
+  spec constraint either, reinforcing that this firmware's deviation is genuinely harmless in
+  practice, not just presumed so.
+- **Could not resolve the rate-¾ per-block checksum (7-bit serial + 9-bit CRC) this way**:
+  MMDVMHost's `DMRTrellis.cpp` implements the actual channel-coding Trellis encode/decode, but
+  MMDVMHost only operates as a *repeater* -- it decodes a rate-¾ block only far enough to
+  regenerate/relay it (`DMRSlot.cpp`), treating the 18 bytes as an opaque blob. It never
+  interprets the serial-number/CRC-9 fields inside, since that's an endpoint-radio concern, not a
+  repeater one. This piece remains exactly as unverified as before -- now for a documented reason.
+
 ## Still not verifiable (would need more real-world data, not more spec-reading)
 
 - **Call Alert / Radio Check / Ack CSBK opcode values** (`0x1F`/`0x1D`/`0x20`) -- confirmed **not**

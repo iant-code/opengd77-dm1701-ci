@@ -1468,6 +1468,20 @@ void applicationMainTask(void)
 			}
 		}
 
+		{
+			uint32_t incomingAlertSourceId;
+
+			if (csbkConsumeIncomingCallAlert(&incomingAlertSourceId))
+			{
+				char line[SCREEN_LINE_BUFFER_SIZE];
+				// MELODY_PRIVATE_CALL, not an ACK/NACK beep -- this is someone paging the user
+				// directly, same tone already used elsewhere for an incoming private voice call.
+				soundSetMelody(MELODY_PRIVATE_CALL);
+				snprintf(line, sizeof(line), "Alert from %lu", (unsigned long)incomingAlertSourceId);
+				uiNotificationShow(NOTIFICATION_TYPE_MESSAGE, NOTIFICATION_ID_SMS_TX, 2500U, line, true);
+			}
+		}
+
 		settingsSaveIfNeeded(false);
 
 		if (settingsIsOptionBitSet(BIT_DISPLAY_TIME_IN_HEADER))
