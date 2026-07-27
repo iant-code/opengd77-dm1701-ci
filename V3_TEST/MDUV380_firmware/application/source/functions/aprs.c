@@ -1379,8 +1379,26 @@ void aprsBeaconingPrepareSatelliteConfig(void)
 	{
 		if (satelliteDataNative[uiDataGlobal.SatelliteAndAlarmData.currentSatellite].AdditionalData[0] != 0)
 		{
-			aprsBcnData.aprsConfig[APRS_CONFIG_SATELLITE].senderSSID = 7U;
-			aprsBcnData.aprsConfig[APRS_CONFIG_SATELLITE].comment[0] = 0U;
+			satelliteData_t *satForAprs = &satelliteDataNative[uiDataGlobal.SatelliteAndAlarmData.currentSatellite];
+
+			// KEY_4 (menuSatelliteScreen.c) manual override, if the user has set one for this
+			// satellite -- see the comment on satelliteData_t.aprsCommentOverrideSet in
+			// satellite.h for why this has to be re-read here on every call rather than the UI
+			// poking aprsConfig[APRS_CONFIG_SATELLITE] directly (this function rebuilds that
+			// buffer from scratch each time it runs, including right before an actual beacon
+			// send, so a direct poke wouldn't survive that long).
+			if (satForAprs->aprsCommentOverrideSet)
+			{
+				aprsBcnData.aprsConfig[APRS_CONFIG_SATELLITE].senderSSID = satForAprs->aprsSenderSSIDOverride;
+				strncpy(aprsBcnData.aprsConfig[APRS_CONFIG_SATELLITE].comment, satForAprs->aprsCommentOverride, sizeof(aprsBcnData.aprsConfig[APRS_CONFIG_SATELLITE].comment) - 1U);
+				aprsBcnData.aprsConfig[APRS_CONFIG_SATELLITE].comment[sizeof(aprsBcnData.aprsConfig[APRS_CONFIG_SATELLITE].comment) - 1U] = 0;
+			}
+			else
+			{
+				aprsBcnData.aprsConfig[APRS_CONFIG_SATELLITE].senderSSID = 7U;
+				aprsBcnData.aprsConfig[APRS_CONFIG_SATELLITE].comment[0] = 0U;
+			}
+
 			aprsBcnData.aprsConfig[APRS_CONFIG_SATELLITE].iconTable = 0U;
 			aprsBcnData.aprsConfig[APRS_CONFIG_SATELLITE].iconIndex = ('0' - '!');
 

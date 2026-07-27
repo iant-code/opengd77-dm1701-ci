@@ -130,6 +130,17 @@ typedef struct
 	satellite_txRxFreqs freqs[3];
     char 				AdditionalData[ADDITION_DATA_SIZE];
     satellitePredictions_t predictions;
+
+    // Manual APRS comment/SSID override, RAM-only (see KEY_4 in menuSatelliteScreen.c and its use
+    // in aprsBeaconingPrepareSatelliteConfig()). Stored per-satellite, same as freqs[] above, so
+    // it survives between when the user sets it and whenever aprsBeaconingPrepareSatelliteConfig()
+    // next rebuilds the outbound beacon config (that function is called on satellite selection AND
+    // again right before sending, so patching its output buffer directly wouldn't stick -- this
+    // has to be read back in by that function instead). Lost on a TLE reload (loadKeps()) or
+    // reboot, same as the freq override.
+    bool                aprsCommentOverrideSet;
+    char                aprsCommentOverride[24]; // matches CodeplugAPRSConfig_t.comment[24]
+    uint8_t             aprsSenderSSIDOverride;
 } satelliteData_t;
 
 typedef struct

@@ -56,6 +56,20 @@
 
 static const uint32_t ALARM_OFFSET_SECS = 60;
 
+// Manual APRS correction (KEY_4, see handleEvent()): frequency + sender SSID + comment together.
+// TLE data (codeplug custom data type SATELLITE_TLE) only carries orbital elements -- the
+// per-satellite Voice/APRS/Other frequencies (and the AdditionalData digipeater path bytes) live
+// in the SAME codeplug record but are separate fields loadKeps() never touches when TLEs are
+// refreshed, so a real-world change (e.g. the ISS APRS downlink frequency) doesn't get picked up
+// by re-uploading fresh TLEs alone. This is a deliberate, explicit, RAM-only correction the user
+// applies by hand while the satellite of interest is selected -- it does NOT touch the codeplug,
+// so it's lost again if loadKeps() re-runs (a TLE reload, see the reset in loadKeps() below) or
+// the radio reboots; re-press KEY_4 if needed. Update these constants here if the real values
+// change again.
+static const uint32_t SATELLITE_APRS_OVERRIDE_FREQ_HZ = 437825000UL; // 437.825 MHz
+static const uint8_t SATELLITE_APRS_OVERRIDE_SENDER_SSID = 6U; // "-6" == satellite ops, per APRS SSID convention
+static const char SATELLITE_APRS_OVERRIDE_COMMENT[] = "Software: OpenGD77";
+
 enum
 {
 	SATELLITE_SCREEN_ALL_PREDICTIONS_LIST,
@@ -886,6 +900,21 @@ static void handleEvent(uiEvent_t *ev)
 			currentSatelliteFreqIndex = SATELLITE_OTHER_FREQ;
 			needsUpdate = true;
 		}
+		else if (KEYCHECK_SHORTUP(ev->keys, KEY_4))
+		{
+			// Applies to whichever satellite is currently selected -- same convention as 1/2/3
+			// above, no name-matching against "ISS" attempted (TLE_Name is truncated to 8 chars
+			// in the codeplug and real-world catalog names vary, e.g. "ISS (ZARYA)", so matching
+			// reliably isn't safe to assume; the user has the right satellite on screen already).
+			currentActiveSatellite->freqs[SATELLITE_APRS_FREQ].rxFreq = SATELLITE_APRS_OVERRIDE_FREQ_HZ;
+			currentActiveSatellite->freqs[SATELLITE_APRS_FREQ].txFreq = SATELLITE_APRS_OVERRIDE_FREQ_HZ;
+			currentActiveSatellite->aprsSenderSSIDOverride = SATELLITE_APRS_OVERRIDE_SENDER_SSID;
+			strncpy(currentActiveSatellite->aprsCommentOverride, SATELLITE_APRS_OVERRIDE_COMMENT, sizeof(currentActiveSatellite->aprsCommentOverride) - 1U);
+			currentActiveSatellite->aprsCommentOverride[sizeof(currentActiveSatellite->aprsCommentOverride) - 1U] = 0;
+			currentActiveSatellite->aprsCommentOverrideSet = true;
+			currentSatelliteFreqIndex = SATELLITE_APRS_FREQ;
+			needsUpdate = true;
+		}
 
 		if (needsUpdate)
 		{
@@ -1402,6 +1431,7 @@ static void loadKeps(void)
 						memcpy(satelliteDataNative[numSatellitesLoaded].AdditionalData, codeplugKepsData.data[numSatellitesLoaded].AdditionalData, ADDITION_DATA_SIZE);
 
 						memset(&satelliteDataNative[numSatellitesLoaded].predictions, 0x00, sizeof(satellitePredictions_t));
+						satelliteDataNative[numSatellitesLoaded].aprsCommentOverrideSet = false; // KEY_4 override, see satellite.h -- doesn't survive a TLE reload
 			}
 			else
 			{
