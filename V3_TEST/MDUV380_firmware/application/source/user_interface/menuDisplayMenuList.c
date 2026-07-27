@@ -167,6 +167,11 @@ static void updateScreen(bool isFirstRun)
 					menuName = "Space";
 					customString = true;
 				}
+				else if (menuDataGlobal.currentMenuList[mNum].menuNum == MENU_SPECTRUM)
+				{
+					menuName = "Spectrum";
+					customString = true;
+				}
 
 				// menuIconForMenuId() returns NULL for any menuNum without an explicit icon mapping,
 				// which menuDisplayEntryEx() treats identically to plain menuDisplayEntry() -- so

@@ -27,6 +27,7 @@ C_SRCS += \
 ../application/source/user_interface/menuSMS.c \
 ../application/source/user_interface/menuSatelliteScreen.c \
 ../application/source/user_interface/menuSoundOptions.c \
+../application/source/user_interface/menuSpectrum.c \
 ../application/source/user_interface/menuSystem.c \
 ../application/source/user_interface/menuThemeOptions.c \
 ../application/source/user_interface/menuZoneList.c \
@@ -69,6 +70,7 @@ OBJS += \
 ./application/source/user_interface/menuSMS.o \
 ./application/source/user_interface/menuSatelliteScreen.o \
 ./application/source/user_interface/menuSoundOptions.o \
+./application/source/user_interface/menuSpectrum.o \
 ./application/source/user_interface/menuSystem.o \
 ./application/source/user_interface/menuThemeOptions.o \
 ./application/source/user_interface/menuZoneList.o \
@@ -111,6 +113,7 @@ C_DEPS += \
 ./application/source/user_interface/menuSMS.d \
 ./application/source/user_interface/menuSatelliteScreen.d \
 ./application/source/user_interface/menuSoundOptions.d \
+./application/source/user_interface/menuSpectrum.d \
 ./application/source/user_interface/menuSystem.d \
 ./application/source/user_interface/menuThemeOptions.d \
 ./application/source/user_interface/menuZoneList.d \

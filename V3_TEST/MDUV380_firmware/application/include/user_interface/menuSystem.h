@@ -356,6 +356,7 @@ enum MENU_SCREENS
 	MENU_GAMES_MENU,
 	MENU_GAME_SNAKE,
 	MENU_GAME_SPACE,
+	MENU_SPECTRUM,
 	NUM_MENU_ENTRIES
 };
 
@@ -514,5 +515,12 @@ menuStatus_t menuColourPicker(uiEvent_t *ev, bool isFirstRun);
 menuStatus_t menuGameSnake(uiEvent_t *ev, bool isFirstRun);
 // Controls: 2/4/6/8 move the ship, auto-fires -- a small Nokia "Space Impact" style shooter.
 menuStatus_t menuGameSpace(uiEvent_t *ev, bool isFirstRun);
+// Swept-RSSI spectrum analyser (no FFT hardware on this radio -- see
+// DOCUMENTATIE/spectrum_analyser_plan.md). Up/Down/Left/Right move the frequency cursor, GREEN
+// short-press starts/stops the sweep, GREEN long-press opens Band/Span/Refresh settings, RED
+// always exits and restores the original frequency. Number keys type a new frequency (GREEN
+// commits it and starts sweeping there), HASH tunes the radio to the cursor and exits, STAR
+// toggles max-hold mode (long-press clears it).
+menuStatus_t menuSpectrum(uiEvent_t *ev, bool isFirstRun);
 
 #endif

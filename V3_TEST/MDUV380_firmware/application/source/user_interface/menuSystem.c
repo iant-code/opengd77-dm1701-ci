@@ -120,6 +120,7 @@ menuDataGlobal_t menuDataGlobal =
 				&menuDataGames,// Games menu
 				NULL,// Snake game
 				NULL,// Space game
+				NULL,// Spectrum analyser
 		}
 };
 
@@ -191,6 +192,7 @@ static menuFunctionData_t menuFunctions[] =
 		{ menuDisplayMenuList,      NULL, NULL, 0 },// display Games menu using the menu display system
 		{ menuGameSnake,            NULL, NULL, 0 },
 		{ menuGameSpace,            NULL, NULL, 0 },
+		{ menuSpectrum,             NULL, NULL, 0 },
 };
 
 static void menuSystemCheckForFirstEntryAudible(menuStatus_t status)
@@ -685,6 +687,7 @@ const menuItemNewData_t mainMenuItems[] =
 #if defined(HAS_GPS)
 	{ 195, MENU_GPS		        },
 #endif
+	{   0, MENU_SPECTRUM        }, // stringOffset unused -- menuDisplayMenuList.c overrides the label to "Spectrum"
 	{   0, MENU_GAMES_MENU      }, // stringOffset unused -- menuDisplayMenuList.c overrides the label to "Games"
 };
 

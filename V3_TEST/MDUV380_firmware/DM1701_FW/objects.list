@@ -131,6 +131,7 @@
 "./application/source/user_interface/menuSMS.o"
 "./application/source/user_interface/menuSatelliteScreen.o"
 "./application/source/user_interface/menuSoundOptions.o"
+"./application/source/user_interface/menuSpectrum.o"
 "./application/source/user_interface/menuSystem.o"
 "./application/source/user_interface/menuThemeOptions.o"
 "./application/source/user_interface/menuZoneList.o"

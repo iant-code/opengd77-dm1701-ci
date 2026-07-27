@@ -101,6 +101,21 @@ static void iconDrawRssi(int16_t x, int16_t y, bool isInverted) // green ascendi
 	displaySetForegroundAndBackgroundColours(savedFg, savedBg);
 }
 
+static void iconDrawSpectrum(int16_t x, int16_t y, bool isInverted) // same ascending bars as RSSI, in red (Spectrum)
+{
+	uint16_t savedFg, savedBg;
+
+	(void)isInverted;
+	displayGetForegroundAndBackgroundColours(&savedFg, &savedBg);
+	displaySetForegroundAndBackgroundColours(displayConvertRGB888ToNative(0xD50000U), savedBg); // red
+
+	displayFillRect(x, (int16_t)(y + 7), 2, 3, false);
+	displayFillRect((int16_t)(x + 3), (int16_t)(y + 5), 2, 5, false);
+	displayFillRect((int16_t)(x + 6), (int16_t)(y + 2), 2, 8, false);
+
+	displaySetForegroundAndBackgroundColours(savedFg, savedBg);
+}
+
 static void iconDrawInfo(int16_t x, int16_t y, bool isInverted) // "i" in a circle (Firmware Info) -- always blue
 {
 	uint16_t savedFg, savedBg;
@@ -415,6 +430,8 @@ menuIconDrawFn_t menuIconForMenuId(int menuId)
 			return iconDrawSnake;
 		case MENU_GAME_SPACE: // within the Games submenu
 			return iconDrawSpaceship;
+		case MENU_SPECTRUM:
+			return iconDrawSpectrum;
 		default:
 			return NULL;
 	}
