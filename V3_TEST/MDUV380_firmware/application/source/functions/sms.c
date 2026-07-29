@@ -52,7 +52,12 @@
 #define SMS_ACK_RESPONSE_DELAY_MS              1500U
 #define SMS_MOTOROLA_UDP_PORT                0x0FA7U
 #define SMS_MOTOROLA_IPV4_PROTOCOL           0x11U
-#define SMS_MOTOROLA_IPV4_TTL                0x01U
+// Verified byte-for-byte against a real AnyTone D890UV firmware binary (static analysis, see
+// DOCUMENTATIE/anytone_d890uv_sms_findings.md): Motorola-format SMS uses IPv4 TTL 0x40 on real
+// hardware, NOT 0x01 as the KY4YI spec doc states -- DMR_Standard format does use 0x01, matching
+// the spec, so that value lives separately below as SMS_STANDARD_IPV4_TTL.
+#define SMS_MOTOROLA_IPV4_TTL                0x40U
+#define SMS_STANDARD_IPV4_TTL                0x01U
 #define SMS_MOTOROLA_TEXT_OFFSET               38U
 #define SMS_MOTOROLA_INTERNAL_HEADER_SIZE      10U
 #define SMS_STANDARD_TEXT_OFFSET               32U
@@ -2347,7 +2352,7 @@ static uint16_t smsUdpChecksum(const uint8_t *ipPacket, uint16_t udpLength)
 	return (result == 0x0000U) ? 0xFFFFU : result;
 }
 
-static void smsBuildIpHeader(uint8_t *packet, uint16_t ipPacketLength, uint32_t sourceId, uint32_t destinationId)
+static void smsBuildIpHeader(uint8_t *packet, uint16_t ipPacketLength, uint32_t sourceId, uint32_t destinationId, uint8_t ttl)
 {
 	uint16_t checksum;
 
@@ -2360,7 +2365,7 @@ static void smsBuildIpHeader(uint8_t *packet, uint16_t ipPacketLength, uint32_t 
 	smsIpSequenceNumber++;
 	packet[6]  = 0x00U;
 	packet[7]  = 0x00U;
-	packet[8]  = 0x01U;
+	packet[8]  = ttl;
 	packet[9]  = 0x11U;
 	packet[10] = 0x00U;
 	packet[11] = 0x00U;
@@ -2441,7 +2446,7 @@ static smsPackResult_t smsBuildMotorolaPayload(uint32_t destinationId, uint32_t 
 
 	memset(payload, 0, SMS_MAX_TRANSPORT_BYTES);
 	currentIpSeq = smsIpSequenceNumber;
-	smsBuildIpHeader(payload, ipPacketLength, sourceId, destinationId);
+	smsBuildIpHeader(payload, ipPacketLength, sourceId, destinationId, SMS_MOTOROLA_IPV4_TTL);
 	smsBuildMotorolaUdpHeader(payload, textByteLength, currentIpSeq);
 	memcpy(&payload[SMS_MOTOROLA_TEXT_OFFSET], utf16Payload, textByteLength);
 
@@ -2513,7 +2518,7 @@ static smsPackResult_t smsBuildStandardPayload(uint32_t destinationId, uint32_t 
 	}
 
 	memset(payload, 0, SMS_MAX_TRANSPORT_BYTES);
-	smsBuildIpHeader(payload, ipPacketLength, sourceId, destinationId);
+	smsBuildIpHeader(payload, ipPacketLength, sourceId, destinationId, SMS_STANDARD_IPV4_TTL);
 	smsBuildStandardUdpHeader(payload, textByteLength);
 	memcpy(&payload[SMS_STANDARD_TEXT_OFFSET], utf16Payload, textByteLength);
 
@@ -2561,7 +2566,7 @@ smsPackResult_t smsBuildIpUdpPayload(uint32_t destinationId, uint32_t sourceId, 
 	}
 
 	memset(payload, 0, SMS_MAX_TRANSPORT_BYTES);
-	smsBuildIpHeader(payload, ipPacketLength, sourceId, destinationId);
+	smsBuildIpHeader(payload, ipPacketLength, sourceId, destinationId, SMS_STANDARD_IPV4_TTL); // generic framing (e.g. LRRP), matches the spec-documented TTL, not Motorola-specific
 
 	udpLength = (uint16_t)(appPayloadLength + 8U);
 	payload[20] = (uint8_t)((udpPort >> 8) & 0xFFU);
