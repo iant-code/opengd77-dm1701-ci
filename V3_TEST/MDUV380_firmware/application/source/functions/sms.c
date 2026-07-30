@@ -2240,8 +2240,17 @@ static bool smsHandleIncomingResponsePdu(const uint8_t *frame)
 
 	// Treat as ACK/response only when the response payload marker is present.
 	// This avoids swallowing valid inbound SMS headers that use dataPacketFormat 0x01.
+	//
+	// frame[9] is deliberately NOT checked against a fixed value in the sapType==0x40 branch --
+	// 2 real captured ACKs from the same network service (262995, both replying to consecutive
+	// "INBOX" sends, otherwise byte-identical) had frame[9]=0x49 then 0x48, disproving the
+	// previous ((frame[9]==0x08)||(frame[9]==0x00)) literal match. That match was silently
+	// rejecting genuine ACKs, leaving outgoingTracking.active set until the 6s ack timeout fired
+	// (SMS_TX_EVENT_TIMEOUT, shown to the user as a send failure) even though the network had
+	// already confirmed delivery -- see DOCUMENTATIE/sms_send_format_choice.md. The sapType==0x00
+	// branch's frame[9]==0x00 check is left as-is: no real capture has disproven it.
 	sapType = (uint8_t)(frame[1] & 0xF0U);
-	if (!(((sapType == 0x40U) && (frame[8] == 0x00U) && ((frame[9] == 0x08U) || (frame[9] == 0x00U))) ||
+	if (!(((sapType == 0x40U) && (frame[8] == 0x00U)) ||
 		((sapType == 0x00U) && (frame[8] == 0x00U) && (frame[9] == 0x00U))))
 	{
 		return false;
