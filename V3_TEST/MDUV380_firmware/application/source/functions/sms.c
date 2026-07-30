@@ -217,6 +217,18 @@ typedef struct
 
 static uint8_t inboxCount = 0U;
 static uint16_t smsIpSequenceNumber = 0U;
+// Motorola-format internal sequence byte (packet[32] of smsBuildMotorolaUdpHeader) -- independent
+// of smsIpSequenceNumber, confirmed by 2 real captured messages: IP header seq went 0 then 1
+// (matching smsIpSequenceNumber incrementing per message), but this byte went 0x81 then 0x8A --
+// not a simple function of the IP sequence number at all. Only the RANGE is confirmed (wraps
+// 0x81..0x9F, per DOCUMENTATIE/anytone_d890uv_sms_findings.md's static analysis of the same
+// field), not the exact per-message increment amount (a difference of 9 was observed between two
+// messages carrying 5 and then 4 data blocks respectively -- consistent with a per-BLOCK counter,
+// but not confirmed from only 2 samples). Incrementing once per sent message is the safest,
+// clearly-correct-in-spirit choice: this byte's job (distinguishing consecutive transmissions) is
+// satisfied by any non-repeating value in range, not by matching AnyTone's internal counting rule
+// bit-for-bit.
+static uint8_t smsMotorolaInternalSequence = 0x81U;
 static uint8_t sentCount = 0U;
 static uint8_t quickTextCount = 0U;
 static bool inboxUnreadNotification = false;
@@ -2383,7 +2395,7 @@ static void smsBuildIpHeader(uint8_t *packet, uint16_t ipPacketLength, uint32_t 
 	packet[11] = (uint8_t)(checksum & 0xFFU);
 }
 
-static void smsBuildMotorolaUdpHeader(uint8_t *packet, uint16_t textByteLength, uint16_t ipSequence)
+static void smsBuildMotorolaUdpHeader(uint8_t *packet, uint16_t textByteLength)
 {
 	uint16_t udpLength = (uint16_t)(textByteLength + 18U);
 	uint16_t internalLength = (uint16_t)(textByteLength + 8U);
@@ -2401,7 +2413,10 @@ static void smsBuildMotorolaUdpHeader(uint8_t *packet, uint16_t textByteLength, 
 	packet[29] = (uint8_t)(internalLength & 0xFFU);
 	packet[30] = 0xE0U;
 	packet[31] = 0x00U;
-	packet[32] = (uint8_t)((ipSequence & 0xFFU) | 0x80U);
+	// See smsMotorolaInternalSequence's declaration comment -- independent counter, not derived
+	// from the IP header's own sequence number (2 real captures disproved that link).
+	packet[32] = smsMotorolaInternalSequence;
+	smsMotorolaInternalSequence = (smsMotorolaInternalSequence >= 0x9FU) ? 0x81U : (smsMotorolaInternalSequence + 1U);
 	packet[33] = 0x04U;
 	packet[34] = 0x0DU;
 	packet[35] = 0x00U;
@@ -2420,7 +2435,6 @@ static smsPackResult_t smsBuildMotorolaPayload(uint32_t destinationId, uint32_t 
 	uint16_t ipPacketLength;
 	uint16_t crcOffset;
 	uint32_t crc32;
-	uint16_t currentIpSeq;
 	smsPackResult_t result;
 
 	if ((payload == NULL) || (payloadLength == NULL) || (padOctetCount == NULL))
@@ -2445,9 +2459,8 @@ static smsPackResult_t smsBuildMotorolaPayload(uint32_t destinationId, uint32_t 
 	}
 
 	memset(payload, 0, SMS_MAX_TRANSPORT_BYTES);
-	currentIpSeq = smsIpSequenceNumber;
 	smsBuildIpHeader(payload, ipPacketLength, sourceId, destinationId, SMS_MOTOROLA_IPV4_TTL);
-	smsBuildMotorolaUdpHeader(payload, textByteLength, currentIpSeq);
+	smsBuildMotorolaUdpHeader(payload, textByteLength);
 	memcpy(&payload[SMS_MOTOROLA_TEXT_OFFSET], utf16Payload, textByteLength);
 
 	crc32 = smsCrc32Compute(payload, crcOffset);
