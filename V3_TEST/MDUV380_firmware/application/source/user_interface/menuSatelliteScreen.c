@@ -56,19 +56,38 @@
 
 static const uint32_t ALARM_OFFSET_SECS = 60;
 
-// Manual APRS correction (KEY_4, see handleEvent()): frequency + sender SSID + comment together.
-// TLE data (codeplug custom data type SATELLITE_TLE) only carries orbital elements -- the
-// per-satellite Voice/APRS/Other frequencies (and the AdditionalData digipeater path bytes) live
-// in the SAME codeplug record but are separate fields loadKeps() never touches when TLEs are
-// refreshed, so a real-world change (e.g. the ISS APRS downlink frequency) doesn't get picked up
-// by re-uploading fresh TLEs alone. This is a deliberate, explicit, RAM-only correction the user
-// applies by hand while the satellite of interest is selected -- it does NOT touch the codeplug,
-// so it's lost again if loadKeps() re-runs (a TLE reload, see the reset in loadKeps() below) or
-// the radio reboots; re-press KEY_4 if needed. Update these constants here if the real values
-// change again.
+// Manual APRS correction (KEY_4, see handleEvent()): frequency + sender SSID + comment + path
+// together. TLE data (codeplug custom data type SATELLITE_TLE) only carries orbital elements --
+// the per-satellite Voice/APRS/Other frequencies (and the AdditionalData digipeater path bytes)
+// live in the SAME codeplug record but are separate fields loadKeps() re-reads from the codeplug
+// on every reload, so a real-world change (e.g. the ISS APRS downlink frequency) doesn't get
+// picked up by re-uploading fresh TLEs alone. This is a deliberate, explicit, RAM-only correction
+// the user applies by hand while the satellite of interest is selected -- it does NOT touch the
+// codeplug. loadKeps() re-runs on more than just an explicit TLE reload -- gps.c calls
+// menuSatelliteSetFullReload() as soon as a GPS fix is acquired, which is silent from the user's
+// point of view and can happen well after KEY_4 was pressed. So this override is designed to
+// SURVIVE that: applyAPRSCorrectionOverride() (below) is re-run automatically by loadKeps() for
+// any satellite that already had aprsCommentOverrideSet, immediately after the codeplug refresh
+// overwrites freq/AdditionalData, rather than the override simply being dropped. Update these
+// constants here if the real values change again.
 static const uint32_t SATELLITE_APRS_OVERRIDE_FREQ_HZ = 437825000UL; // 437.825 MHz
 static const uint8_t SATELLITE_APRS_OVERRIDE_SENDER_SSID = 6U; // "-6" == satellite ops, per APRS SSID convention
 static const char SATELLITE_APRS_OVERRIDE_COMMENT[] = "Software: OpenGD77";
+
+// Digipeater path safety-net, folded into the same KEY_4 correction: the user's own CPS imports
+// satellite data from TLE files, which (same root cause as the frequency above) never carry
+// digipeater path info at all -- so AdditionalData[0..13] (see satelliteData_t in satellite.h) can
+// end up blank or stale from that import regardless of the frequency being right. KEY_4 now
+// overwrites it unconditionally "just to be safe" rather than trying to detect whether it was
+// already correct. Two hops (RS0ISS then NA1SS), both SSID 0 -- verified against 3 real captured
+// ISS APRS packets: one showed both hops used together, one showed RS0ISS alone (no NA1SS at
+// all), consistent with the ISS digipeater's exact active mode varying over time. Listing both is
+// the robust choice either way: an unused trailing hop that never digipeats doesn't break a path
+// that only needed the first one.
+static const char SATELLITE_APRS_OVERRIDE_PATH0_NAME[6] = { 'R', 'S', '0', 'I', 'S', 'S' };
+static const uint8_t SATELLITE_APRS_OVERRIDE_PATH0_SSID = 0U;
+static const char SATELLITE_APRS_OVERRIDE_PATH1_NAME[6] = { 'N', 'A', '1', 'S', 'S', 0 };
+static const uint8_t SATELLITE_APRS_OVERRIDE_PATH1_SSID = 0U;
 
 enum
 {
@@ -83,6 +102,7 @@ static void handleEvent(uiEvent_t *ev);
 static void updateScreen(uiEvent_t *ev, bool firstRun, bool announceVP);
 static bool calculatePredictionsForSatelliteIndex(int satelliteIndex);
 static void loadKeps(void);
+static void applyAPRSCorrectionOverride(satelliteData_t *sat);
 static int menuSatelliteFindNextSatellite(void);
 static void exitCallback(void *data);
 static void selectSatellite(uint32_t selectedSatellite);
@@ -245,7 +265,13 @@ menuStatus_t menuSatelliteScreen(uiEvent_t *ev, bool isFirstRun)
 				nextCalculationTime = ev->time + 1000; // 1000 milliseconds
 			}
 
-			if ((menuSatelliteScreenNextUpdateTime != 0) && (ev->time > menuSatelliteScreenNextUpdateTime))
+			// Skip while a notification (e.g. the APRS TX confirmation) is up -- this screen's own
+			// full redraw would otherwise fight the notification overlay for the display buffer:
+			// uiNotificationRefresh() draws the popup then restores the pre-popup buffer contents
+			// in RAM, so any plain displayRender() from here in between corrupts/prematurely ends
+			// it. menuSatelliteScreenNextUpdateTime is deliberately left unadvanced, so the very
+			// next tick after the notification clears catches straight back up.
+			if ((menuSatelliteScreenNextUpdateTime != 0) && (ev->time > menuSatelliteScreenNextUpdateTime) && (uiNotificationIsVisible() == false))
 			{
 				updateScreen(ev, false, false);
 			}
@@ -906,12 +932,7 @@ static void handleEvent(uiEvent_t *ev)
 			// above, no name-matching against "ISS" attempted (TLE_Name is truncated to 8 chars
 			// in the codeplug and real-world catalog names vary, e.g. "ISS (ZARYA)", so matching
 			// reliably isn't safe to assume; the user has the right satellite on screen already).
-			currentActiveSatellite->freqs[SATELLITE_APRS_FREQ].rxFreq = SATELLITE_APRS_OVERRIDE_FREQ_HZ;
-			currentActiveSatellite->freqs[SATELLITE_APRS_FREQ].txFreq = SATELLITE_APRS_OVERRIDE_FREQ_HZ;
-			currentActiveSatellite->aprsSenderSSIDOverride = SATELLITE_APRS_OVERRIDE_SENDER_SSID;
-			strncpy(currentActiveSatellite->aprsCommentOverride, SATELLITE_APRS_OVERRIDE_COMMENT, sizeof(currentActiveSatellite->aprsCommentOverride) - 1U);
-			currentActiveSatellite->aprsCommentOverride[sizeof(currentActiveSatellite->aprsCommentOverride) - 1U] = 0;
-			currentActiveSatellite->aprsCommentOverrideSet = true;
+			applyAPRSCorrectionOverride(currentActiveSatellite);
 			currentSatelliteFreqIndex = SATELLITE_APRS_FREQ;
 			needsUpdate = true;
 		}
@@ -1396,6 +1417,23 @@ static bool calculatePredictionsForSatelliteIndex(int satelliteIndex)
 	return true;
 }
 
+// See the comment block above SATELLITE_APRS_OVERRIDE_FREQ_HZ for why this needs to be callable
+// from both the KEY_4 handler (first application) and loadKeps() (re-application after a reload
+// silently wiped the codeplug-sourced freq/AdditionalData fields this override touches).
+static void applyAPRSCorrectionOverride(satelliteData_t *sat)
+{
+	sat->freqs[SATELLITE_APRS_FREQ].rxFreq = SATELLITE_APRS_OVERRIDE_FREQ_HZ;
+	sat->freqs[SATELLITE_APRS_FREQ].txFreq = SATELLITE_APRS_OVERRIDE_FREQ_HZ;
+	sat->aprsSenderSSIDOverride = SATELLITE_APRS_OVERRIDE_SENDER_SSID;
+	strncpy(sat->aprsCommentOverride, SATELLITE_APRS_OVERRIDE_COMMENT, sizeof(sat->aprsCommentOverride) - 1U);
+	sat->aprsCommentOverride[sizeof(sat->aprsCommentOverride) - 1U] = 0;
+	sat->aprsCommentOverrideSet = true;
+	memcpy(&sat->AdditionalData[0], SATELLITE_APRS_OVERRIDE_PATH0_NAME, 6U);
+	sat->AdditionalData[6] = (char)('0' + SATELLITE_APRS_OVERRIDE_PATH0_SSID);
+	memcpy(&sat->AdditionalData[7], SATELLITE_APRS_OVERRIDE_PATH1_NAME, 6U);
+	sat->AdditionalData[13] = (char)('0' + SATELLITE_APRS_OVERRIDE_PATH1_SSID);
+}
+
 static void loadKeps(void)
 {
 	codeplugSatelliteCuctsomDataUnion_t codeplugKepsData;
@@ -1409,6 +1447,8 @@ static void loadKeps(void)
 		{
 			if (codeplugKepsData.data[numSatellitesLoaded].TLE_Name[0] != 0)
 			{
+				bool hadAPRSCorrectionOverride = satelliteDataNative[numSatellitesLoaded].aprsCommentOverrideSet;
+
 				satelliteTLE2Native(
 						codeplugKepsData.data[numSatellitesLoaded].TLE_Name,
 						codeplugKepsData.data[numSatellitesLoaded].TLE_Line1,
@@ -1431,7 +1471,19 @@ static void loadKeps(void)
 						memcpy(satelliteDataNative[numSatellitesLoaded].AdditionalData, codeplugKepsData.data[numSatellitesLoaded].AdditionalData, ADDITION_DATA_SIZE);
 
 						memset(&satelliteDataNative[numSatellitesLoaded].predictions, 0x00, sizeof(satellitePredictions_t));
-						satelliteDataNative[numSatellitesLoaded].aprsCommentOverrideSet = false; // KEY_4 override, see satellite.h -- doesn't survive a TLE reload
+
+						// KEY_4 override survives a reload by reapplying itself on top of the fresh
+						// codeplug data above -- see the comment on SATELLITE_APRS_OVERRIDE_FREQ_HZ
+						// for why this matters (gps.c can trigger a reload silently, well after the
+						// user pressed KEY_4).
+						if (hadAPRSCorrectionOverride)
+						{
+							applyAPRSCorrectionOverride(&satelliteDataNative[numSatellitesLoaded]);
+						}
+						else
+						{
+							satelliteDataNative[numSatellitesLoaded].aprsCommentOverrideSet = false;
+						}
 			}
 			else
 			{

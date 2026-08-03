@@ -46,6 +46,7 @@
 #include "functions/aprs.h"
 #include "hardware/HR-C6000.h"
 #include "functions/satellite.h"
+#include "usb/usb_com.h"
 #if defined(HAS_GPS)
 #include "interfaces/gps.h"
 #endif
@@ -269,6 +270,10 @@ aprsBeaconingData_t aprsBcnData =
 const uint16_t initialIntervalsInSecs[APRS_BEACON_INITIAL_INTERVAL_MAX + 1] = { 12U, 30U, 60U, 120U, 180U, 300U, 600U, 1200U, 1800U, 3600U };
 
 static char myCall[16];
+// Built by aprsSendPacket() right after the frame is assembled, shown by aprsBeaconingTxStateTick()
+// once APRS_TX_FINISHED fires -- lets the user visually confirm what was actually sent, on-screen,
+// without needing the USB CDC debug output.
+static char lastAprsTxSummary[NOTIFICATION_MESSAGE_LEN_MAX];
 static int lenBytes = 0;
 static volatile uint32_t lastTone;
 static volatile int bytePos = 0;
@@ -758,6 +763,51 @@ static bool aprsSendPacket(CodeplugAPRSConfig_t *config, aprsBeaconingLocation_t
 	enqueueCRC(&encoderData);
 	enqueueFlagOfLength(&encoderData, 3U);
 
+	// Debug: dump the packet in TNC2 monitor format (SRC>DEST,PATH:payload) over USB CDC serial,
+	// so the actual outgoing header/path/payload can be checked against real captures.
+	{
+		char path0Name[7];
+		char path1Name[7];
+		uint8_t numPaths = ((strlen(aprsConfig->paths[1].name) == 0) ? 1U : 2U);
+		char pathStr[32];
+
+		memcpy(path0Name, aprsConfig->paths[0].name, 6U);
+		path0Name[6] = 0;
+		memcpy(path1Name, aprsConfig->paths[1].name, 6U);
+		path1Name[6] = 0;
+
+		if (numPaths == 2U)
+		{
+			snprintf(pathStr, sizeof(pathStr), "%s-%u,%s-%u", path0Name, aprsConfig->paths[0].SSID, path1Name, aprsConfig->paths[1].SSID);
+		}
+		else
+		{
+			snprintf(pathStr, sizeof(pathStr), "%s-%u", path0Name, aprsConfig->paths[0].SSID);
+		}
+
+		USB_DEBUG_printf("APRS TX%s: %s-%u>%s,%s:!%s%c%s%c%s%s\r\n",
+				(fromSatScreen ? " (satellite)" : ""),
+				myCall, aprsConfig->senderSSID, APRS_DESTINATION, pathStr,
+				latStr, ((aprsConfig->iconTable == 0) ? '/' : '\\'), lonStr, (char)(aprsConfig->iconIndex + '!'),
+				(courseAndSpeed ? courseSpeedStr : ""),
+				(aprsConfig->comment[0] ? aprsConfig->comment : ""));
+
+		// On-screen confirmation, shown once TX actually finishes (aprsBeaconingTxStateTick()) --
+		// same source data as the debug line above, condensed to fit the notification box (4 lines
+		// of 14 chars, see uiNotification.c's displayMessage()). Path is deliberately the most
+		// prominent line: it's what was actually broken.
+		if (numPaths == 2U)
+		{
+			snprintf(pathStr, sizeof(pathStr), "%s,%s", path0Name, path1Name);
+		}
+		else
+		{
+			snprintf(pathStr, sizeof(pathStr), "%s", path0Name);
+		}
+		snprintf(lastAprsTxSummary, sizeof(lastAprsTxSummary), "APRS Sent\n%s-%u\n%s\n%s",
+				myCall, aprsConfig->senderSSID, pathStr, latStr);
+	}
+
 	lenBytes = encoderData.packetBufferBitPosition / 8;
 	bytePos = 0;
 	bitPos = 0;
@@ -1210,6 +1260,7 @@ static void aprsBeaconingTxStateTick(uiEvent_t *ev)
 
 		case APRS_TX_FINISHED:
 			aprsTxEnded();// foreground parts of APRS send finished
+			uiNotificationShow(NOTIFICATION_TYPE_MESSAGE, NOTIFICATION_ID_USER, 3000, lastAprsTxSummary, true);
 			// deliberate fall through
 		case APRS_TX_TERMINATE:
 			trxTransmissionEnabled = false;
@@ -1363,6 +1414,16 @@ void aprsBeaconingResetTimers(void)
 	}
 }
 
+// AdditionalData[6]/[13] are expected to hold an ASCII '0'-'9' digit (see menuSatelliteScreen.c's
+// applyAPRSCorrectionOverride()). If that byte is ever something else -- e.g. a raw 0x00 from
+// unprogrammed/stale codeplug data -- naively subtracting '0' underflows a uint8_t and wraps to a
+// huge, invalid SSID (observed once as 208 on real hardware). Clamp to a safe 0 instead of
+// encoding garbage onto the air.
+static uint8_t aprsPathSSIDDigitFromByte(char digitByte)
+{
+	return (((digitByte >= '0') && (digitByte <= '9')) ? (uint8_t)(digitByte - '0') : 0U);
+}
+
 void aprsBeaconingPrepareSatelliteConfig(void)
 {
 	bool hasAprsConfig = false;
@@ -1403,9 +1464,9 @@ void aprsBeaconingPrepareSatelliteConfig(void)
 			aprsBcnData.aprsConfig[APRS_CONFIG_SATELLITE].iconIndex = ('0' - '!');
 
 			memcpy(aprsBcnData.aprsConfig[APRS_CONFIG_SATELLITE].paths[0].name, &satelliteDataNative[uiDataGlobal.SatelliteAndAlarmData.currentSatellite].AdditionalData[0], 6U);
-			aprsBcnData.aprsConfig[APRS_CONFIG_SATELLITE].paths[0].SSID = satelliteDataNative[uiDataGlobal.SatelliteAndAlarmData.currentSatellite].AdditionalData[6] - '0';
+			aprsBcnData.aprsConfig[APRS_CONFIG_SATELLITE].paths[0].SSID = aprsPathSSIDDigitFromByte(satelliteDataNative[uiDataGlobal.SatelliteAndAlarmData.currentSatellite].AdditionalData[6]);
 			memcpy(aprsBcnData.aprsConfig[APRS_CONFIG_SATELLITE].paths[1].name, &satelliteDataNative[uiDataGlobal.SatelliteAndAlarmData.currentSatellite].AdditionalData[7], 6U);
-			aprsBcnData.aprsConfig[APRS_CONFIG_SATELLITE].paths[1].SSID = satelliteDataNative[uiDataGlobal.SatelliteAndAlarmData.currentSatellite].AdditionalData[13] - '0';
+			aprsBcnData.aprsConfig[APRS_CONFIG_SATELLITE].paths[1].SSID = aprsPathSSIDDigitFromByte(satelliteDataNative[uiDataGlobal.SatelliteAndAlarmData.currentSatellite].AdditionalData[13]);
 
 			hasAprsConfig = true;
 		}
