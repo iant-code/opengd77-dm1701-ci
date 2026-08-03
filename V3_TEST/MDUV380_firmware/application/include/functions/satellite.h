@@ -141,6 +141,16 @@ typedef struct
     bool                aprsCommentOverrideSet;
     char                aprsCommentOverride[24]; // matches CodeplugAPRSConfig_t.comment[24]
     uint8_t             aprsSenderSSIDOverride;
+
+    // "STEM" override (KEY_5, menuSatelliteScreen.c): patches the Other/CW slot (SATELLITE_OTHER_
+    // FREQ) to the special 145.800MHz RX-only ARISS/ISS voice downlink used for school/STEM
+    // contacts -- see https://www.ariss.org/current-status-of-iss-stations.html. Deliberately
+    // reuses the Other/CW slot rather than Voice: that slot's own existing label is already
+    // "CW Rx" (receive-oriented by original design), so overwriting it doesn't risk destroying a
+    // real, safety-relevant TX uplink frequency the way patching the Voice slot in place would
+    // (switching back to Voice afterward, on the same enum index, would otherwise silently show
+    // whatever this override left behind). RAM-only, reset by loadKeps() on a TLE reload.
+    bool                otherIsStemOverride;
 } satelliteData_t;
 
 typedef struct

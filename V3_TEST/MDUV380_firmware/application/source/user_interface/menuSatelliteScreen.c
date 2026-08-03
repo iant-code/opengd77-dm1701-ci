@@ -89,6 +89,14 @@ static const uint8_t SATELLITE_APRS_OVERRIDE_PATH0_SSID = 0U;
 static const char SATELLITE_APRS_OVERRIDE_PATH1_NAME[6] = { 'N', 'A', '1', 'S', 'S', 0 };
 static const uint8_t SATELLITE_APRS_OVERRIDE_PATH1_SSID = 0U;
 
+// "STEM" override (KEY_5): the special ARISS/ISS voice downlink used for school/STEM contacts --
+// see https://www.ariss.org/current-status-of-iss-stations.html. RX only, deliberately: unlike
+// the regional voice uplinks, there's no single correct TX frequency to pair with this, so
+// CHANNEL_FLAG_RX_ONLY is set on the active channel to hard-block PTT via the SAME existing
+// TX-permission check every other RX-only channel in this firmware already goes through (see
+// KEYCHECK handling below), rather than inventing a new one.
+static const uint32_t SATELLITE_STEM_VOICE_FREQ_HZ = 145800000UL; // 145.800 MHz
+
 enum
 {
 	SATELLITE_SCREEN_ALL_PREDICTIONS_LIST,
@@ -406,7 +414,8 @@ static void updateScreen(uiEvent_t *ev, bool firstRun, bool announceVP)
 		{
 			case SATELLITE_SCREEN_SELECTED_SATELLITE:
 			{
-				const char *freqNames[] = { currentLanguage->voice_prompt_level_1, currentLanguage->APRS, "CW Rx" };// Temporary hard coded names, will eventually need new language strings
+				const char *freqNames[] = { currentLanguage->voice_prompt_level_1, currentLanguage->APRS,
+						(currentActiveSatellite->otherIsStemOverride ? "STEM" : "CW Rx") };// Temporary hard coded names, will eventually need new language strings
 
 				if(hasRecalculated || announceVP)
 				{
@@ -914,16 +923,19 @@ static void handleEvent(uiEvent_t *ev)
 		if (KEYCHECK_SHORTUP(ev->keys, KEY_1))
 		{
 			currentSatelliteFreqIndex = SATELLITE_VOICE_FREQ;
+			codeplugChannelSetFlag(currentChannelData, CHANNEL_FLAG_RX_ONLY, 0); // in case KEY_5's STEM mode left this set
 			needsUpdate = true;
 		}
 		else if (KEYCHECK_SHORTUP(ev->keys, KEY_2))
 		{
 			currentSatelliteFreqIndex = SATELLITE_APRS_FREQ;
+			codeplugChannelSetFlag(currentChannelData, CHANNEL_FLAG_RX_ONLY, 0);
 			needsUpdate = true;
 		}
 		else if (KEYCHECK_SHORTUP(ev->keys, KEY_3))
 		{
 			currentSatelliteFreqIndex = SATELLITE_OTHER_FREQ;
+			codeplugChannelSetFlag(currentChannelData, CHANNEL_FLAG_RX_ONLY, 0);
 			needsUpdate = true;
 		}
 		else if (KEYCHECK_SHORTUP(ev->keys, KEY_4))
@@ -934,6 +946,20 @@ static void handleEvent(uiEvent_t *ev)
 			// reliably isn't safe to assume; the user has the right satellite on screen already).
 			applyAPRSCorrectionOverride(currentActiveSatellite);
 			currentSatelliteFreqIndex = SATELLITE_APRS_FREQ;
+			codeplugChannelSetFlag(currentChannelData, CHANNEL_FLAG_RX_ONLY, 0);
+			needsUpdate = true;
+		}
+		else if (KEYCHECK_SHORTUP(ev->keys, KEY_5))
+		{
+			// STEM override -- see SATELLITE_STEM_VOICE_FREQ_HZ above. Patches the Other/CW slot
+			// (not Voice -- see the comment on satelliteData_t.otherIsStemOverride in satellite.h
+			// for why). rx/tx both set to the same value only so nothing stale/wrong lingers in
+			// txFreq; TX itself is blocked by the RX_ONLY flag below, not by rx==tx.
+			currentActiveSatellite->freqs[SATELLITE_OTHER_FREQ].rxFreq = SATELLITE_STEM_VOICE_FREQ_HZ;
+			currentActiveSatellite->freqs[SATELLITE_OTHER_FREQ].txFreq = SATELLITE_STEM_VOICE_FREQ_HZ;
+			currentActiveSatellite->otherIsStemOverride = true;
+			currentSatelliteFreqIndex = SATELLITE_OTHER_FREQ;
+			codeplugChannelSetFlag(currentChannelData, CHANNEL_FLAG_RX_ONLY, 1);
 			needsUpdate = true;
 		}
 
@@ -1484,6 +1510,7 @@ static void loadKeps(void)
 						{
 							satelliteDataNative[numSatellitesLoaded].aprsCommentOverrideSet = false;
 						}
+					satelliteDataNative[numSatellitesLoaded].otherIsStemOverride = false; // KEY_5 override, see satellite.h -- doesn't survive a TLE reload
 			}
 			else
 			{
