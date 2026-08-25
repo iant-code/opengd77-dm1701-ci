@@ -380,6 +380,52 @@ static void iconDrawSnake(int16_t x, int16_t y, bool isInverted) // Play Snake -
 	displaySetForegroundAndBackgroundColours(savedFg, savedBg);
 }
 
+static void iconDrawBreakout(int16_t x, int16_t y, bool isInverted) // Play Breakout -- brick row, ball, paddle
+{
+	uint16_t savedFg, savedBg;
+
+	(void)isInverted;
+	displayGetForegroundAndBackgroundColours(&savedFg, &savedBg);
+
+	// displayFillRect() called directly is the "true=background" polarity (see
+	// spectrumDrawMeter()/menuGameBreakout.c) -- false is what actually gets the foreground colour.
+	displaySetForegroundAndBackgroundColours(displayConvertRGB888ToNative(0xE53935U), savedBg); // red brick row
+	displayFillRect((int16_t)(x + 1), y, 3, 2, false);
+	displayFillRect((int16_t)(x + 5), y, 3, 2, false);
+
+	displaySetForegroundAndBackgroundColours(displayConvertRGB888ToNative(0xFFFFFFU), savedBg); // white ball
+	displayFillCircle((int16_t)(x + 7), (int16_t)(y + 5), 1, true);
+
+	displaySetForegroundAndBackgroundColours(displayConvertRGB888ToNative(0xE0E0E0U), savedBg); // grey paddle/floor
+	displayFillRect((int16_t)(x + 1), (int16_t)(y + 8), 6, 1, false);
+
+	displaySetForegroundAndBackgroundColours(savedFg, savedBg);
+}
+
+static void iconDrawChomp(int16_t x, int16_t y, bool isInverted) // Play Chomp -- yellow muncher, blue wall, dots
+{
+	uint16_t savedFg, savedBg;
+
+	(void)isInverted;
+	displayGetForegroundAndBackgroundColours(&savedFg, &savedBg);
+
+	// displayFillRect() called directly is the "true=background" polarity (see
+	// spectrumDrawMeter()/menuGameChomp.c) -- false is what actually gets the foreground colour.
+	displaySetForegroundAndBackgroundColours(displayConvertRGB888ToNative(0x1E88E5U), savedBg); // blue wall
+	displayFillRect((int16_t)(x + 6), (int16_t)(y + 6), 3, 3, false);
+
+	displaySetForegroundAndBackgroundColours(displayConvertRGB888ToNative(0xE0E0E0U), savedBg); // dots
+	displaySetPixel((int16_t)(x + 1), (int16_t)(y + 8), true);
+	displaySetPixel((int16_t)(x + 3), (int16_t)(y + 8), true);
+
+	displaySetForegroundAndBackgroundColours(displayConvertRGB888ToNative(0xFDD835U), savedBg); // yellow muncher
+	displayFillCircle((int16_t)(x + 6), (int16_t)(y + 2), 2, true);
+	displaySetForegroundAndBackgroundColours(savedFg, savedBg);
+	displayFillTriangle((int16_t)(x + 6), (int16_t)(y + 2), (int16_t)(x + 9), (int16_t)(y), (int16_t)(x + 9), (int16_t)(y + 4), true); // mouth wedge, background colour
+
+	displaySetForegroundAndBackgroundColours(savedFg, savedBg);
+}
+
 static void iconDrawChessPiece(int16_t x, int16_t y, bool isInverted) // Games -- knight (horse) head silhouette
 {
 	// Neck/head wedge, tapering to a snout
@@ -430,6 +476,10 @@ menuIconDrawFn_t menuIconForMenuId(int menuId)
 			return iconDrawSnake;
 		case MENU_GAME_SPACE: // within the Games submenu
 			return iconDrawSpaceship;
+		case MENU_GAME_BREAKOUT: // within the Games submenu
+			return iconDrawBreakout;
+		case MENU_GAME_CHOMP: // within the Games submenu
+			return iconDrawChomp;
 		case MENU_SPECTRUM:
 			return iconDrawSpectrum;
 		default:

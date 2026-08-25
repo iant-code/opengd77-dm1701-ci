@@ -167,6 +167,16 @@ static void updateScreen(bool isFirstRun)
 					menuName = "Space";
 					customString = true;
 				}
+				else if (menuDataGlobal.currentMenuList[mNum].menuNum == MENU_GAME_BREAKOUT)
+				{
+					menuName = "Breakout";
+					customString = true;
+				}
+				else if (menuDataGlobal.currentMenuList[mNum].menuNum == MENU_GAME_CHOMP)
+				{
+					menuName = "Chomp";
+					customString = true;
+				}
 				else if (menuDataGlobal.currentMenuList[mNum].menuNum == MENU_SPECTRUM)
 				{
 					menuName = "Spectrum";
