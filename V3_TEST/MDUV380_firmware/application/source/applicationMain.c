@@ -53,6 +53,7 @@
 #include "functions/rxPowerSaving.h"
 #include "functions/sms.h"
 #include "functions/csbk.h"
+#include "functions/dmrDisconnect.h"
 
 #if defined(USING_EXTERNAL_DEBUGGER)
 #include "SeggerRTT/RTT/SEGGER_RTT.h"
@@ -735,6 +736,10 @@ void applicationMainTask(void)
 				}
 			}
 		}
+
+		// TG 4000 "hard disconnect": when armed, this injects/releases BUTTON_PTT in the first clear
+		// gap to auto-send the unlink (same injection mechanism as VOX just above). No-op when idle.
+		dmrDisconnectTick(menuSystemGetCurrentMenuNumber(), &buttons, &button_event);
 
 		// If the settings update message is still on screen, don't permit to start xmitting.
 		if (updateMessageOnScreen && (buttons & BUTTON_PTT))

@@ -9,6 +9,7 @@ C_SRCS += \
 ../application/source/functions/calibration.c \
 ../application/source/functions/codeplug.c \
 ../application/source/functions/csbk.c \
+../application/source/functions/dmrDisconnect.c \
 ../application/source/functions/hotspot.c \
 ../application/source/functions/lrrp.c \
 ../application/source/functions/mdc1200.c \
@@ -27,6 +28,7 @@ OBJS += \
 ./application/source/functions/calibration.o \
 ./application/source/functions/codeplug.o \
 ./application/source/functions/csbk.o \
+./application/source/functions/dmrDisconnect.o \
 ./application/source/functions/hotspot.o \
 ./application/source/functions/lrrp.o \
 ./application/source/functions/mdc1200.o \
@@ -45,6 +47,7 @@ C_DEPS += \
 ./application/source/functions/calibration.d \
 ./application/source/functions/codeplug.d \
 ./application/source/functions/csbk.d \
+./application/source/functions/dmrDisconnect.d \
 ./application/source/functions/hotspot.d \
 ./application/source/functions/lrrp.d \
 ./application/source/functions/mdc1200.d \

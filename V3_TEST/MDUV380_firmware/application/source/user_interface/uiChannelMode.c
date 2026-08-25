@@ -34,6 +34,7 @@
 #include "functions/voicePrompts.h"
 #include "functions/rxPowerSaving.h"
 #include "functions/sms.h"
+#include "functions/dmrDisconnect.h"
 #if defined(PLATFORM_MD9600) || defined(PLATFORM_MD380) || defined(PLATFORM_MDUV380) || defined(PLATFORM_RT84_DM1701) || defined(PLATFORM_MD2017)
 #include "hardware/radioHardwareInterface.h"
 #endif
@@ -2278,6 +2279,10 @@ static void updateQuickMenuScreen(bool isFirstRun)
 					leftSide = currentLanguage->mute;
 					rightSideConst = (uiDataGlobal.QuickMenu.tmpAudioMute ? currentLanguage->yes : currentLanguage->no);
 					break;
+				case CH_SCREEN_QUICK_MENU_DMR_DISCONNECT:
+					// Action item (like COPY2VFO): a single centred label, fired on GREEN below.
+					rightSideConst = (dmrDisconnectIsActive() ? "Cancel Disc" : "Disconnect");
+					break;
 				default:
 					buf[0] = 0;
 			}
@@ -2507,6 +2512,13 @@ static void handleQuickMenuEvent(uiEvent_t *ev)
 					return;
 				}
 					break;
+
+				case CH_SCREEN_QUICK_MENU_DMR_DISCONNECT:
+					// Action item: arm (or cancel) the TG 4000 disconnect, then close the quick menu.
+					// The actual auto-fire-in-the-gap is handled by dmrDisconnectTick() in the main loop.
+					dmrDisconnectArm();
+					menuSystemPopPreviousMenu();
+					return;
 
 				default:
 					// CH_SCREEN_QUICK_MENU_FILTER_FM
