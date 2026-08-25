@@ -72,7 +72,55 @@ static uint8_t rawNoise[RADIO_DEVICE_MAX] =
 static bool displayRawValues = false;
 
 static const int barX = 9;
-DECLARE_SMETER_ARRAY(rssiMeterBar, (DISPLAY_SIZE_X - (barX - 1)));
+
+// S-meter layout: S0..S9 gets the first two-thirds of the bar width, +10/+20 over S9 gets the
+// final third (previously S0..S9 took ~70% and everything above S9 was crammed into the last 30%
+// as a single unlabelled dashed/filled region -- this keeps S0..S9 roughly where it was, but the
+// former blank/dashed region now gets two actually-labelled graduations). Signals stronger than
+// S9+20 just peg at full scale: this hardware can read up to S9+60, but resolving finer than +20
+// on a ~150px display, with only a third of the width to do it in, isn't useful.
+#define RSSI_METER_SPLIT_NUM   2
+#define RSSI_METER_SPLIT_DEN   3
+
+// Historical RSSI strip-chart, drawn below the meter -- one column per pixel, oldest sample
+// scrolls off the left. At the screen's own ~200ms update cadence (RSSI_UPDATE_COUNTER_RELOAD)
+// this holds roughly (RSSI_HISTORY_COLS * 0.2)s of history.
+#define RSSI_HISTORY_HEIGHT       22
+#define RSSI_HISTORY_TOP_OFFSET   (15 + FONT_SIZE_2_HEIGHT + 3) // below the graticule's number row, +3px gap
+// 9 == barX, duplicated as a literal: barX is a runtime variable, not usable to size a file-scope
+// array. The extra "- 1" (vs. the meter's own full DISPLAY_SIZE_X-9 width) leaves a 1px margin on
+// each side for drawRssiHistoryFrame()'s border -- without it the content already touches the true
+// right screen edge with zero margin, and a border drawn "just outside" that would land 1px past
+// the last valid column.
+#define RSSI_HISTORY_COLS         ((DISPLAY_SIZE_X - 9) - 1)
+
+static uint8_t rssiHistory[RADIO_DEVICE_MAX][RSSI_HISTORY_COLS]; // stored as pre-scaled bar height (0..RSSI_HISTORY_HEIGHT), not raw dBm
+
+// Maps a dBm value onto a 0..scale range using the same two-zone (S0..S9 / S9..S9+20, pegged)
+// layout described above. Used both for the meter's own bar width and (with RSSI_HISTORY_HEIGHT
+// as the scale) the history graph's bar heights, so the two views agree on what "how strong" looks
+// like.
+static int rssiDbmToScale(int dbm, int scale)
+{
+	int splitPos = ((scale * RSSI_METER_SPLIT_NUM) / RSSI_METER_SPLIT_DEN);
+
+	if (dbm <= SMETER_S0)
+	{
+		return 0;
+	}
+
+	if (dbm <= SMETER_S9)
+	{
+		return (((dbm - SMETER_S0) * splitPos) / (SMETER_S9 - SMETER_S0));
+	}
+
+	if (dbm >= SMETER_S9_20)
+	{
+		return scale;
+	}
+
+	return (splitPos + (((dbm - SMETER_S9) * (scale - splitPos)) / (SMETER_S9_20 - SMETER_S9)));
+}
 
 menuStatus_t menuRSSIScreen(uiEvent_t *ev, bool isFirstRun)
 {
@@ -122,55 +170,113 @@ static int32_t getSignalStrength(int dbm)
 
 static void drawMeterGraticule(int16_t vOffset)
 {
+	int totalWidth = (DISPLAY_SIZE_X - barX);
+	int splitPos = rssiDbmToScale(SMETER_S9, totalWidth); // pixel boundary between the S0..S9 and +10/+20 zones
+
 	// Draw S-Meter outer frame
 	displayDrawRect((barX - 2), (vOffset - 2), (DISPLAY_SIZE_X - (barX - 2)), (8 + 4), true);
 	// Clear the right V line of the frame
 	displayDrawFastVLine((DISPLAY_SIZE_X - 1), (vOffset - 1), (8 + 2), false);
-	// S9+xx H Dots
-	for (int16_t i = ((barX - 2) + (rssiMeterBar[9] * 2) + 1); i < DISPLAY_SIZE_X; i += 4)
+	// Dash the top edge of the frame over the extended (+10/+20) zone, so it reads as visually
+	// distinct from the plain S0..S9 zone even before the numbers are read.
+	for (int16_t i = (barX + splitPos + 1); i < DISPLAY_SIZE_X; i += 4)
 	{
-		displayDrawFastHLine(i, (vOffset - 2), 2, false);
+		displayDrawFastHLine(i, (vOffset - 2), 2, true);
 	}
-	// +10..60dB
-	displayFillRect(((barX - 2) + (rssiMeterBar[9] * 2) + 2), (vOffset + 8) + 2,
-			(DISPLAY_SIZE_X - ((barX - 2) + (rssiMeterBar[9] * 2) + 2)), 2, false);
 
 	// Draw S, Numbers and ticks
 	displayPrintAt(1, vOffset, "S", FONT_SIZE_1_BOLD);
 
-	int xPos;
-	int currentMode = trxGetMode();
-
-	for (uint8_t i = 0; i < 10; i++)
+	// S0..S9 -- the meter's first two-thirds.
+	for (uint8_t i = 0; i <= 9; i++)
 	{
-		// Scale the bar graph so values S0 - S9 take 70% of the scale width, and signals above S9 take the last 30%
-		// On DMR the max signal is S9+10, so teh entire bar can be the sale scale
-		// ON FM signals above S9, the scale is compressed to 2/STRONG_SIGNAL_RESCALE
-		if ((i <= 9) || (currentMode == RADIO_MODE_DIGITAL))
-		{
-			xPos = rssiMeterBar[i];
-		}
-		else
-		{
-			xPos = ((rssiMeterBar[i] - rssiMeterBar[9]) / STRONG_SIGNAL_RESCALE) + rssiMeterBar[9];
-		}
-		xPos *= 2;
+		int dbm = (SMETER_S0 + (((SMETER_S9 - SMETER_S0) * i) / 9));
+		// rssiDbmToScale() can return totalWidth itself (a full-scale peg) -- one past the last
+		// valid on-screen column at barX+totalWidth-1, so the tick/text position has to clamp
+		// separately from the bar-fill *width* uses of this same function (where returning the
+		// full totalWidth is correct: it's a pixel count starting at barX, not an absolute offset).
+		int xPos = CLAMP(rssiDbmToScale(dbm, totalWidth), 0, (totalWidth - 1));
 
-		// V ticks
-		displayDrawFastVLine(((barX - 2) + xPos), (vOffset + 8) + 2, ((i % 2) ? 3 : 1), ((i < 10) ? true : false));
+		displayDrawFastVLine((barX + xPos), (vOffset + 8) + 2, ((i % 2) ? 3 : 1), true);
 
-		if ((i % 2) && (i < 10))
+		if (i % 2)
 		{
 			char buf[2];
+			int16_t textX = (int16_t)(((barX + xPos) - 2) - 1)/* FONT_2 H offset */;
 
 			sprintf(buf, "%d", i);
-			displayPrintAt(((((barX - 2) + xPos) - 2) - 1)/* FONT_2 H offset */, vOffset + 15
+			textX = (int16_t)CLAMP(textX, 0, (DISPLAY_SIZE_X - FONT_SIZE_2_HEIGHT)); // 1 char == FONT_SIZE_2_HEIGHT px wide (font_8x8)
+			displayPrintAt(textX, vOffset + 15
 #if defined(PLATFORM_RD5R)
 					-1
 #endif
 					, buf, FONT_SIZE_2);
 		}
 	}
+
+	// +10/+20 over S9 -- the meter's final third, pegged at +20 (see rssiDbmToScale()). Capped at
+	// +20 rather than +30: with S0..S9 now at two-thirds width, only a third is left for the
+	// extended zone, and three graduations there read as cramped -- two fits cleanly. Labelled "+"
+	// and "++" (one/two steps past S9), not "+10"/"+20" -- those 3-character labels were wide enough
+	// that +20's edge-clamping (see below) pushed it left into +10's label. The short "+"/"++" pair
+	// is narrow enough that both fit in their natural positions with no clamp collision.
+	static const int extLevels[2] = { SMETER_S9_10, SMETER_S9_20 };
+	static const char *extLabels[2] = { "+", "++" };
+
+	for (uint8_t i = 0; i < 2; i++)
+	{
+		int xPos = CLAMP(rssiDbmToScale(extLevels[i], totalWidth), 0, (totalWidth - 1));
+		int labelWidthPx = ((int)strlen(extLabels[i]) * FONT_SIZE_2_HEIGHT);
+		int16_t textX = (int16_t)((barX + xPos) - (labelWidthPx / 2));
+
+		displayDrawFastVLine((barX + xPos), (vOffset + 8) + 2, 3, true);
+		// ++ pegs right at the edge of the meter, where there isn't room for a label centred on its
+		// tick -- clamp so the label always stays fully on screen instead of running off the right edge.
+		textX = (int16_t)CLAMP(textX, 0, (DISPLAY_SIZE_X - labelWidthPx));
+		displayPrintAt(textX, vOffset + 15
+#if defined(PLATFORM_RD5R)
+				-1
+#endif
+				, extLabels[i], FONT_SIZE_2);
+	}
+}
+
+static void drawRssiHistoryFrame(int16_t topY)
+{
+	displayDrawRect((barX - 1), (topY - 1), (RSSI_HISTORY_COLS + 2), (RSSI_HISTORY_HEIGHT + 2), true);
+}
+
+// Pushes one new sample (scrolling the oldest one off the left) and redraws every column from the
+// stored buffer. Cheap at this screen's ~200ms update rate (RSSI_HISTORY_COLS short fillRects).
+static void updateRssiHistoryGraph(RadioDevice_t device, int16_t topY, int dbm)
+{
+	uint8_t newBarHeight = (uint8_t)rssiDbmToScale(dbm, RSSI_HISTORY_HEIGHT);
+
+	memmove(&rssiHistory[device][0], &rssiHistory[device][1], (RSSI_HISTORY_COLS - 1));
+	rssiHistory[device][RSSI_HISTORY_COLS - 1] = newBarHeight;
+
+	// Foreground/background set once, then plain displayFillRect()'s own polarity (true=background,
+	// false=foreground -- see menuGameBreakout.c/spectrumDrawMeter()) picks between them per call,
+	// rather than re-applying the theme on every one of these ~150 columns.
+	displayThemeApply(THEME_ITEM_FG_RSSI_BAR, THEME_ITEM_BG);
+
+	for (int col = 0; col < RSSI_HISTORY_COLS; col++)
+	{
+		int16_t x = (int16_t)(barX + col);
+		uint8_t h = rssiHistory[device][col];
+
+		if (h < RSSI_HISTORY_HEIGHT)
+		{
+			displayFillRect(x, topY, 1, (int16_t)(RSSI_HISTORY_HEIGHT - h), true);
+		}
+
+		if (h > 0)
+		{
+			displayFillRect(x, (int16_t)(topY + (RSSI_HISTORY_HEIGHT - h)), 1, h, false);
+		}
+	}
+
+	displayThemeResetToDefault();
 }
 
 static void updateScreen(bool forceRedraw, bool isFirstRun)
@@ -205,9 +311,15 @@ static void updateScreen(bool forceRedraw, bool isFirstRun)
 		// Clear whole drawing region
 		displayFillRect(0, 14, DISPLAY_SIZE_X, DISPLAY_SIZE_Y - 14, true);
 
+		if (isFirstRun)
+		{
+			memset(rssiHistory, 0, sizeof(rssiHistory)); // start each visit to this screen with an empty history graph
+		}
+
 		for(RadioDevice_t device = RADIO_DEVICE_PRIMARY; device < RADIO_DEVICE_MAX; device++)
 		{
 			drawMeterGraticule(yBarPos);
+			drawRssiHistoryFrame((int16_t)(yBarPos + RSSI_HISTORY_TOP_OFFSET));
 #if defined(PLATFORM_MD2017)
 			yBarPos += SECONDARY_DISPLAY_OFFSET;
 #endif
@@ -250,20 +362,8 @@ static void updateScreen(bool forceRedraw, bool isFirstRun)
 		ucPrintCore((DISPLAY_SIZE_X - ((strlen(buffer) + 1) * 8)), yValuePos, buffer, FONT_SIZE_2, TEXT_ALIGN_RIGHT, false);
 #endif
 
-		if ((rssi[device] > SMETER_S9) && (trxGetMode() == RADIO_MODE_ANALOG))
-		{
-			// In Analog mode, the max RSSI value from the hardware is over S9+60.
-			// So scale this to fit in the last 30% of the display
-			rssi[device] = ((rssi[device] - SMETER_S9) / STRONG_SIGNAL_RESCALE) + SMETER_S9;
-		}
-		// Scale the entire bar by 2.
-		// Because above S9 the values are scaled to 1/5.
-		// This can result in the signal below S9 being doubled in scale (depending on STRONG_SIGNAL_RESCALE)
-		// Signals above S9 the scales is compressed to 2/STRONG_SIGNAL_RESCALE.
-		rssi[device] = (rssi[device] - SMETER_S0) * 2;
-
-		barWidth = ((rssi[device] * rssiMeterBarNumUnits) / rssiMeterBarDivider);
-		barWidth = CLAMP((barWidth - 1), 0, (DISPLAY_SIZE_X - barX));
+		barWidth = rssiDbmToScale(rssi[device], (DISPLAY_SIZE_X - barX));
+		barWidth = CLAMP(barWidth, 0, (DISPLAY_SIZE_X - barX));
 
 		if (barWidth)
 		{
@@ -281,9 +381,7 @@ static void updateScreen(bool forceRedraw, bool isFirstRun)
 #if defined(HAS_COLOURS)
 		if (rssi[device] > SMETER_S9)
 		{
-			int xPos;
-
-			xPos = (rssiMeterBar[9] * 2);
+			int xPos = rssiDbmToScale(SMETER_S9, (DISPLAY_SIZE_X - barX));
 
 			if (barWidth > xPos)
 			{
@@ -293,6 +391,11 @@ static void updateScreen(bool forceRedraw, bool isFirstRun)
 			}
 		}
 #endif
+
+		if (forceRedraw == false)
+		{
+			updateRssiHistoryGraph(device, (int16_t)(yBarPos + RSSI_HISTORY_TOP_OFFSET), rssi[device]);
+		}
 
 #if defined(PLATFORM_MD2017)
 		yValuePos += SECONDARY_DISPLAY_OFFSET;
@@ -322,6 +425,7 @@ static void updateScreen(bool forceRedraw, bool isFirstRun)
 		{
 			displayRenderRows((yStartValuePos / 8), (yValuePos / 8) + 1);
 			displayRenderRows((yStartBarPos / 8), (yBarPos / 8) + 1);
+			displayRenderRows(((yStartBarPos + RSSI_HISTORY_TOP_OFFSET) / 8), (((yStartBarPos + RSSI_HISTORY_TOP_OFFSET + RSSI_HISTORY_HEIGHT) / 8) + 1));
 
 #if defined(PLATFORM_MD2017)
 			yStartValuePos += SECONDARY_DISPLAY_OFFSET;

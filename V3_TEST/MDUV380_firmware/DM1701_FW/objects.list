@@ -124,6 +124,7 @@
 "./application/source/user_interface/menuGameSpace.o"
 "./application/source/user_interface/menuGameBreakout.o"
 "./application/source/user_interface/menuGameChomp.o"
+"./application/source/user_interface/menuGameInvaders.o"
 "./application/source/user_interface/menuGeneralOptions.o"
 "./application/source/user_interface/menuIcons.o"
 "./application/source/user_interface/menuLanguage.o"

@@ -194,6 +194,7 @@ static menuFunctionData_t menuFunctions[] =
 		{ menuGameSpace,            NULL, NULL, 0 },
 		{ menuGameBreakout,         NULL, NULL, 0 },
 		{ menuGameChomp,            NULL, NULL, 0 },
+		{ menuGameInvaders,         NULL, NULL, 0 },
 		{ menuSpectrum,             NULL, NULL, 0 },
 };
 
@@ -718,6 +719,7 @@ static const menuItemNewData_t gamesMenuItems[] =
 	{ 0, MENU_GAME_SPACE }, // stringOffset unused -- menuDisplayMenuList.c overrides the label to "Space"
 	{ 0, MENU_GAME_BREAKOUT }, // stringOffset unused -- menuDisplayMenuList.c overrides the label to "Breakout"
 	{ 0, MENU_GAME_CHOMP }, // stringOffset unused -- menuDisplayMenuList.c overrides the label to "Chomp"
+	{ 0, MENU_GAME_INVADERS }, // stringOffset unused -- menuDisplayMenuList.c overrides the label to "Invaders"
 };
 
 const menuItemsList_t menuDataGames =

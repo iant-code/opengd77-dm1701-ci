@@ -402,26 +402,44 @@ static void iconDrawBreakout(int16_t x, int16_t y, bool isInverted) // Play Brea
 	displaySetForegroundAndBackgroundColours(savedFg, savedBg);
 }
 
-static void iconDrawChomp(int16_t x, int16_t y, bool isInverted) // Play Chomp -- yellow muncher, blue wall, dots
+static void iconDrawChomp(int16_t x, int16_t y, bool isInverted) // Play Chomp -- big yellow "Pac-Man"-style muncher, open mouth facing right, chasing a dot
 {
 	uint16_t savedFg, savedBg;
 
 	(void)isInverted;
 	displayGetForegroundAndBackgroundColours(&savedFg, &savedBg);
 
-	// displayFillRect() called directly is the "true=background" polarity (see
-	// spectrumDrawMeter()/menuGameChomp.c) -- false is what actually gets the foreground colour.
-	displaySetForegroundAndBackgroundColours(displayConvertRGB888ToNative(0x1E88E5U), savedBg); // blue wall
-	displayFillRect((int16_t)(x + 6), (int16_t)(y + 6), 3, 3, false);
+	displaySetForegroundAndBackgroundColours(displayConvertRGB888ToNative(0xFDD835U), savedBg); // yellow body, nearly filling the icon box
+	displayFillCircle((int16_t)(x + 5), (int16_t)(y + 5), 4, true);
 
-	displaySetForegroundAndBackgroundColours(displayConvertRGB888ToNative(0xE0E0E0U), savedBg); // dots
-	displaySetPixel((int16_t)(x + 1), (int16_t)(y + 8), true);
-	displaySetPixel((int16_t)(x + 3), (int16_t)(y + 8), true);
-
-	displaySetForegroundAndBackgroundColours(displayConvertRGB888ToNative(0xFDD835U), savedBg); // yellow muncher
-	displayFillCircle((int16_t)(x + 6), (int16_t)(y + 2), 2, true);
+	// Mouth wedge, cut out in the background colour -- wide open, facing right (same default
+	// facing direction as the in-game player sprite).
 	displaySetForegroundAndBackgroundColours(savedFg, savedBg);
-	displayFillTriangle((int16_t)(x + 6), (int16_t)(y + 2), (int16_t)(x + 9), (int16_t)(y), (int16_t)(x + 9), (int16_t)(y + 4), true); // mouth wedge, background colour
+	displayFillTriangle((int16_t)(x + 5), (int16_t)(y + 5), (int16_t)(x + 9), (int16_t)(y + 2), (int16_t)(x + 9), (int16_t)(y + 8), true);
+
+	// A small dot just ahead of the mouth -- the classic "chasing a dot" read.
+	displaySetForegroundAndBackgroundColours(displayConvertRGB888ToNative(0xE0E0E0U), savedBg);
+	displaySetPixel((int16_t)(x + 9), (int16_t)(y + 5), true);
+
+	displaySetForegroundAndBackgroundColours(savedFg, savedBg);
+}
+
+static void iconDrawInvaders(int16_t x, int16_t y, bool isInverted) // Play Invaders -- green alien crab silhouette
+{
+	uint16_t savedFg, savedBg;
+
+	(void)isInverted;
+	displayGetForegroundAndBackgroundColours(&savedFg, &savedBg);
+	displaySetForegroundAndBackgroundColours(displayConvertRGB888ToNative(0x66BB6AU), savedBg); // green
+
+	displaySetPixel((int16_t)(x + 2), y, true);
+	displaySetPixel((int16_t)(x + 7), y, true);
+
+	// displayFillRect() called directly is the "true=background" polarity (see
+	// spectrumDrawMeter()/menuGameInvaders.c) -- false is what actually gets the foreground colour.
+	displayFillRect((int16_t)(x + 1), (int16_t)(y + 2), 8, 3, false);
+	displayFillRect((int16_t)(x + 1), (int16_t)(y + 6), 2, 1, false);
+	displayFillRect((int16_t)(x + 7), (int16_t)(y + 6), 2, 1, false);
 
 	displaySetForegroundAndBackgroundColours(savedFg, savedBg);
 }
@@ -480,6 +498,8 @@ menuIconDrawFn_t menuIconForMenuId(int menuId)
 			return iconDrawBreakout;
 		case MENU_GAME_CHOMP: // within the Games submenu
 			return iconDrawChomp;
+		case MENU_GAME_INVADERS: // within the Games submenu
+			return iconDrawInvaders;
 		case MENU_SPECTRUM:
 			return iconDrawSpectrum;
 		default:

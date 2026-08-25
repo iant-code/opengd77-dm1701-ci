@@ -19,6 +19,7 @@ C_SRCS += \
 ../application/source/user_interface/menuGameSpace.c \
 ../application/source/user_interface/menuGameBreakout.c \
 ../application/source/user_interface/menuGameChomp.c \
+../application/source/user_interface/menuGameInvaders.c \
 ../application/source/user_interface/menuGeneralOptions.c \
 ../application/source/user_interface/menuIcons.c \
 ../application/source/user_interface/menuLanguage.c \
@@ -64,6 +65,7 @@ OBJS += \
 ./application/source/user_interface/menuGameSpace.o \
 ./application/source/user_interface/menuGameBreakout.o \
 ./application/source/user_interface/menuGameChomp.o \
+./application/source/user_interface/menuGameInvaders.o \
 ./application/source/user_interface/menuGeneralOptions.o \
 ./application/source/user_interface/menuIcons.o \
 ./application/source/user_interface/menuLanguage.o \
@@ -109,6 +111,7 @@ C_DEPS += \
 ./application/source/user_interface/menuGameSpace.d \
 ./application/source/user_interface/menuGameBreakout.d \
 ./application/source/user_interface/menuGameChomp.d \
+./application/source/user_interface/menuGameInvaders.d \
 ./application/source/user_interface/menuGeneralOptions.d \
 ./application/source/user_interface/menuIcons.d \
 ./application/source/user_interface/menuLanguage.d \

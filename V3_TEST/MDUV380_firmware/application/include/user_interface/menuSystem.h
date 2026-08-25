@@ -358,6 +358,7 @@ enum MENU_SCREENS
 	MENU_GAME_SPACE,
 	MENU_GAME_BREAKOUT,
 	MENU_GAME_CHOMP,
+	MENU_GAME_INVADERS,
 	MENU_SPECTRUM,
 	NUM_MENU_ENTRIES
 };
@@ -522,6 +523,8 @@ menuStatus_t menuGameSpace(uiEvent_t *ev, bool isFirstRun);
 menuStatus_t menuGameBreakout(uiEvent_t *ev, bool isFirstRun);
 // Controls: 2/4/6/8 move -- dot-eating maze chase (deliberately not named after what it's inspired by, see menuGameChomp.c).
 menuStatus_t menuGameChomp(uiEvent_t *ev, bool isFirstRun);
+// Controls: 4/6 move the cannon, KEY_5 fires -- classic descending-alien-formation shooter.
+menuStatus_t menuGameInvaders(uiEvent_t *ev, bool isFirstRun);
 // Swept-RSSI spectrum analyser (no FFT hardware on this radio -- see
 // DOCUMENTATIE/spectrum_analyser_plan.md). Up/Down/Left/Right move the frequency cursor, GREEN
 // short-press starts/stops the sweep, GREEN long-press opens Band/Span/Refresh settings, RED

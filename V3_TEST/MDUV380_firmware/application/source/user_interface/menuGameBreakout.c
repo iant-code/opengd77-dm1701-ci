@@ -334,9 +334,12 @@ static void updateScreen(bool isFirstRun)
 		menuDisplayTitle("Breakout");
 	}
 
-	displayThemeApply(THEME_ITEM_FG_DECORATION, THEME_ITEM_BG);
-	displayFillRect(0, MENU_HEADER_HEIGHT, DISPLAY_SIZE_X, (DISPLAY_SIZE_Y - MENU_HEADER_HEIGHT), true); // clear playfield to background
-	displayThemeResetToDefault();
+	// Fixed black playfield regardless of the day/night UI theme -- the paddle/ball colours below
+	// are tuned against a dark backdrop (near-white/light-grey) and wash out to invisible against
+	// the day theme's light background otherwise. savedBg is captured straight from this, so every
+	// sprite colour below stays correctly paired with it.
+	displaySetForegroundAndBackgroundColours(displayConvertRGB888ToNative(0x000000U), displayConvertRGB888ToNative(0x000000U));
+	displayFillRect(0, MENU_HEADER_HEIGHT, DISPLAY_SIZE_X, (DISPLAY_SIZE_Y - MENU_HEADER_HEIGHT), true); // clear playfield to black
 
 	displayGetForegroundAndBackgroundColours(&savedFg, &savedBg);
 
@@ -366,7 +369,9 @@ static void updateScreen(bool isFirstRun)
 	displaySetForegroundAndBackgroundColours(displayConvertRGB888ToNative(BREAKOUT_COLOUR_BALL), savedBg);
 	displayFillCircle((int16_t)(ballX + (BREAKOUT_BALL_SIZE / 2)), (int16_t)(ballY + (BREAKOUT_BALL_SIZE / 2)), (BREAKOUT_BALL_SIZE / 2), true);
 
-	displaySetForegroundAndBackgroundColours(savedFg, savedBg);
+	// Explicit white-on-black (not savedFg/savedBg, both now black) -- this HUD text has to stay
+	// legible against the fixed black playfield above, regardless of theme.
+	displaySetForegroundAndBackgroundColours(displayConvertRGB888ToNative(0xFFFFFFU), displayConvertRGB888ToNative(0x000000U));
 
 	snprintf(buffer, sizeof(buffer), "Score:%d", score);
 	displayPrintAt(BREAKOUT_MARGIN, (MENU_HEADER_HEIGHT + 1), buffer, FONT_SIZE_1);

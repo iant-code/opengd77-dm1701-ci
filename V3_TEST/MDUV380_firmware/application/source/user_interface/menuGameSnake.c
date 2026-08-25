@@ -49,6 +49,7 @@
 #define SNAKE_COLOUR_APPLE_HI  0xE53935U // bright red (flash phase A)
 #define SNAKE_COLOUR_APPLE_LO  0x8E1F1CU // dim red (flash phase B)
 #define SNAKE_COLOUR_STEM      0x5D4037U // brown
+#define SNAKE_COLOUR_WALL      0x757575U // grey -- the boundary the snake dies against
 
 typedef enum
 {
@@ -296,7 +297,10 @@ static void drawSnakeHead(uint8_t col, uint8_t row)
 	cellOrigin(col, row, &x, &y);
 	displayGetForegroundAndBackgroundColours(&savedFg, &savedBg);
 	displaySetForegroundAndBackgroundColours(displayConvertRGB888ToNative(SNAKE_COLOUR_HEAD), savedBg);
-	displayFillRoundRect(x, y, SNAKE_CELL_SIZE, SNAKE_CELL_SIZE, 1, true);
+	// A full circle, not a barely-rounded square -- a round shape reads as "the head" to the eye
+	// regardless of colour, and the tail used to be the circle (same shape/size as the food dot),
+	// which made the *tail* look like the leading end and the snake read as moving backwards.
+	displayFillCircle((int16_t)(x + (SNAKE_CELL_SIZE / 2)), (int16_t)(y + (SNAKE_CELL_SIZE / 2)), (SNAKE_CELL_SIZE / 2), true);
 
 	// A single "eye" pixel offset toward the direction of travel, so the head visibly faces the
 	// way it's moving rather than looking like just another body segment.
@@ -331,8 +335,10 @@ static void drawSnakeTail(uint8_t col, uint8_t row)
 	cellOrigin(col, row, &x, &y);
 	displayGetForegroundAndBackgroundColours(&savedFg, &savedBg);
 	displaySetForegroundAndBackgroundColours(displayConvertRGB888ToNative(SNAKE_COLOUR_TAIL), savedBg);
-	// A small circle instead of a square tapers the tail end, rather than it just stopping abruptly.
-	displayFillCircle((int16_t)(x + (SNAKE_CELL_SIZE / 2)), (int16_t)(y + (SNAKE_CELL_SIZE / 2)), (SNAKE_CELL_SIZE / 2), true);
+	// A smaller, barely-rounded square -- deliberately less visually distinct than the head's full
+	// circle, so the tail reads as "trailing off" instead of competing with the head as a second
+	// round, eye-catching shape.
+	displayFillRoundRect((int16_t)(x + 1), (int16_t)(y + 1), (SNAKE_CELL_SIZE - 2), (SNAKE_CELL_SIZE - 2), 1, true);
 	displaySetForegroundAndBackgroundColours(savedFg, savedBg);
 }
 
@@ -364,8 +370,25 @@ static void updateScreen(bool isFirstRun)
 		menuDisplayTitle("Snake");
 	}
 
-	displayThemeApply(THEME_ITEM_FG_DECORATION, THEME_ITEM_BG);
-	displayFillRect(0, SNAKE_PLAYFIELD_Y, DISPLAY_SIZE_X, (DISPLAY_SIZE_Y - SNAKE_PLAYFIELD_Y), true); // clear playfield to background
+	// Fixed black playfield regardless of the day/night UI theme. The sprite colours below (bright
+	// head/dark tail/white eye) are tuned against a dark backdrop -- in the day theme's light
+	// background the light-ish colours wash out and, worse, the dark tail suddenly gets MORE
+	// contrast than the bright head, making the snake read as facing backwards.
+	displaySetForegroundAndBackgroundColours(displayConvertRGB888ToNative(0x000000U), displayConvertRGB888ToNative(0x000000U));
+	displayFillRect(0, SNAKE_PLAYFIELD_Y, DISPLAY_SIZE_X, (DISPLAY_SIZE_Y - SNAKE_PLAYFIELD_Y), true); // clear playfield to black
+
+	// Wall -- a border just outside the playable grid, so it's visible where the snake actually dies
+	// rather than an invisible boundary a few pixels past the edge of the last drawn cell.
+	{
+		uint16_t savedFg, savedBg;
+		int16_t wallX, wallY;
+
+		cellOrigin(0, 0, &wallX, &wallY);
+		displayGetForegroundAndBackgroundColours(&savedFg, &savedBg);
+		displaySetForegroundAndBackgroundColours(displayConvertRGB888ToNative(SNAKE_COLOUR_WALL), savedBg);
+		displayDrawRect((int16_t)(wallX - 1), (int16_t)(wallY - 1), (int16_t)((SNAKE_COLS * SNAKE_CELL_SIZE) + 2), (int16_t)((SNAKE_ROWS * SNAKE_CELL_SIZE) + 2), true);
+		displaySetForegroundAndBackgroundColours(savedFg, savedBg);
+	}
 
 	for (int i = 0; i < snakeLength; i++)
 	{
@@ -390,6 +413,9 @@ static void updateScreen(bool isFirstRun)
 		char buffer[24];
 
 		snprintf(buffer, sizeof(buffer), "Score: %d", (snakeLength - SNAKE_INITIAL_LENGTH));
+		// Explicit white-on-black -- needs to stay legible against the fixed black playfield above,
+		// not whatever the theme's default text colour happens to be.
+		displaySetForegroundAndBackgroundColours(displayConvertRGB888ToNative(0xFFFFFFU), displayConvertRGB888ToNative(0x000000U));
 		displayPrintCentered(((DISPLAY_SIZE_Y / 2) - 8), "GAME OVER", FONT_SIZE_2);
 		displayPrintCentered(((DISPLAY_SIZE_Y / 2) + 6), buffer, FONT_SIZE_1);
 	}

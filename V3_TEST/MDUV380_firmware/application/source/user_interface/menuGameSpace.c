@@ -483,8 +483,12 @@ static void updateScreen(bool isFirstRun)
 		menuDisplayTitle("Space");
 	}
 
-	displayThemeApply(THEME_ITEM_FG_DECORATION, THEME_ITEM_BG);
-	displayFillRect(0, MENU_HEADER_HEIGHT, DISPLAY_SIZE_X, (DISPLAY_SIZE_Y - MENU_HEADER_HEIGHT), true); // clear playfield to background
+	// Fixed black playfield regardless of the day/night UI theme -- "space" is black even in the
+	// day theme's light background; the sprite colours below are chosen against a black backdrop
+	// and everything downstream reads its paired background from savedBg, so this is the only line
+	// that needs to change to fix all of them at once.
+	displaySetForegroundAndBackgroundColours(displayConvertRGB888ToNative(0x000000U), displayConvertRGB888ToNative(0x000000U));
+	displayFillRect(0, MENU_HEADER_HEIGHT, DISPLAY_SIZE_X, (DISPLAY_SIZE_Y - MENU_HEADER_HEIGHT), true); // clear playfield to black
 
 	displayGetForegroundAndBackgroundColours(&savedFg, &savedBg);
 
@@ -575,6 +579,10 @@ static void updateScreen(bool isFirstRun)
 		displayDrawRect(0, MENU_HEADER_HEIGHT, DISPLAY_SIZE_X, (int16_t)(DISPLAY_SIZE_Y - MENU_HEADER_HEIGHT), true);
 		displaySetForegroundAndBackgroundColours(savedFg, savedBg);
 	}
+
+	// Explicit white-on-black, not the theme's (savedFg is now black to match the fixed playfield
+	// above) -- this HUD text has to stay legible against the fixed black backdrop regardless of theme.
+	displaySetForegroundAndBackgroundColours(displayConvertRGB888ToNative(0xFFFFFFU), displayConvertRGB888ToNative(0x000000U));
 
 	snprintf(buffer, sizeof(buffer), "Score:%d", score);
 	displayPrintAt(SPACE_MARGIN, (MENU_HEADER_HEIGHT + 1), buffer, FONT_SIZE_1);

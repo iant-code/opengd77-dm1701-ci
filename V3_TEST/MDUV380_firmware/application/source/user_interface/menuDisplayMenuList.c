@@ -177,6 +177,11 @@ static void updateScreen(bool isFirstRun)
 					menuName = "Chomp";
 					customString = true;
 				}
+				else if (menuDataGlobal.currentMenuList[mNum].menuNum == MENU_GAME_INVADERS)
+				{
+					menuName = "Invaders";
+					customString = true;
+				}
 				else if (menuDataGlobal.currentMenuList[mNum].menuNum == MENU_SPECTRUM)
 				{
 					menuName = "Spectrum";
