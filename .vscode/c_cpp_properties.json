@@ -1,17 +1,40 @@
 {
   "configurations": [
     {
-      "name": "windows-gcc-x64",
+      "name": "DM1701 (V3_TEST)",
       "includePath": [
-        "${workspaceFolder}/**"
+        "${workspaceFolder}/V3_TEST/MDUV380_firmware/application/include/**",
+        "${workspaceFolder}/V3_TEST/MDUV380_firmware/Core/Inc",
+        "${workspaceFolder}/V3_TEST/MDUV380_firmware/Drivers/CMSIS/Include",
+        "${workspaceFolder}/V3_TEST/MDUV380_firmware/Drivers/CMSIS/Device/ST/STM32F4xx/Include",
+        "${workspaceFolder}/V3_TEST/MDUV380_firmware/Drivers/STM32F4xx_HAL_Driver/Inc",
+        "${workspaceFolder}/V3_TEST/MDUV380_firmware/Drivers/STM32F4xx_HAL_Driver/Inc/Legacy",
+        "${workspaceFolder}/V3_TEST/MDUV380_firmware/Middlewares/Third_Party/FreeRTOS/Source/include",
+        "${workspaceFolder}/V3_TEST/MDUV380_firmware/Middlewares/Third_Party/FreeRTOS/Source/portable/GCC/ARM_CM4F",
+        "${workspaceFolder}/V3_TEST/MDUV380_firmware/Middlewares/Third_Party/FreeRTOS/Source/CMSIS_RTOS_V2",
+        "${workspaceFolder}/V3_TEST/MDUV380_firmware/Middlewares/ST/STM32_USB_Device_Library/Core/Inc",
+        "${workspaceFolder}/V3_TEST/MDUV380_firmware/Middlewares/ST/STM32_USB_Device_Library/Class/CDC/Inc",
+        "${workspaceFolder}/V3_TEST/MDUV380_firmware/USB_DEVICE/App",
+        "${workspaceFolder}/V3_TEST/MDUV380_firmware/USB_DEVICE/Target",
+        "${workspaceFolder}/V3_TEST/MDUV380_firmware"
       ],
-      "compilerPath": "C:/msys64/ucrt64/bin/gcc.exe",
-      "cStandard": "${default}",
-      "cppStandard": "${default}",
-      "intelliSenseMode": "windows-gcc-x64",
+      "defines": [
+        "USE_HAL_DRIVER",
+        "STM32F405xx",
+        "PLATFORM_RT84_DM1701",
+        "PLATFORM_VARIANT_DM1701",
+        "DEBUG"
+      ],
+      "compilerPath": "C:/ST/STM32CubeIDE_2.1.0/STM32CubeIDE/plugins/com.st.stm32cube.ide.mcu.externaltools.gnu-tools-for-stm32.14.3.rel1.win32_1.0.100.202602081740/tools/bin/arm-none-eabi-gcc.exe",
       "compilerArgs": [
-        ""
-      ]
+        "-mcpu=cortex-m4",
+        "-mfpu=fpv4-sp-d16",
+        "-mfloat-abi=hard",
+        "-mthumb"
+      ],
+      "cStandard": "gnu11",
+      "cppStandard": "${default}",
+      "intelliSenseMode": "linux-gcc-arm"
     }
   ],
   "version": 4

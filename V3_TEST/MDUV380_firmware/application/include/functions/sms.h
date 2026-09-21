@@ -52,6 +52,11 @@
 // running this same firmware.
 #define SMS_STATUS_SAP_NIBBLE         0x90U
 
+// OR'd into a destination ID (which is 24 bits on the wire) to send the message as a GROUP call to
+// that talkgroup instead of a private call. Stripped again inside smsPackMessage(); callers that
+// remember the destination for retry (outgoing tracking) simply keep the flagged value.
+#define SMS_DEST_GROUP_FLAG           0x80000000U
+
 typedef enum
 {
 	SMS_PACK_OK = 0,
@@ -92,6 +97,7 @@ typedef struct
 	uint8_t padOctetCount;
 	uint8_t blockCount;
 	bool requestAck;
+	bool groupCall;
 	// When csbkOnly is set, HRC6000StartQueuedSMS() repeats `csbk` csbkRepeatCount times and sends
 	// nothing else (no dataHeader/blocks frame) -- used for standalone CSBK services (Call Alert,
 	// Radio Check) that are a complete PDU in themselves, unlike SMS's CSBK-preamble-then-data-header

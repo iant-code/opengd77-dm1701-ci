@@ -2342,6 +2342,22 @@ static uint16_t smsUdpChecksum(const uint8_t *ipPacket, uint16_t udpLength)
 	return (result == 0x0000U) ? 0xFFFFU : result;
 }
 
+// The UDP checksum covers the text, but the UDP header builders run before the text is copied into
+// the packet, so what they store is the checksum of a message whose text is still all zeros -- wrong
+// for every non-empty message (verified against a real Anytone message, whose checksum matches the
+// standard algorithm). Call this once the packet is complete.
+static void smsFinalizeUdpChecksum(uint8_t *packet)
+{
+	uint16_t udpLength = (uint16_t)(((uint16_t)packet[24] << 8) | packet[25]);
+	uint16_t checksum;
+
+	packet[26] = 0x00U;
+	packet[27] = 0x00U;
+	checksum = smsUdpChecksum(packet, udpLength);
+	packet[26] = (uint8_t)((checksum >> 8) & 0xFFU);
+	packet[27] = (uint8_t)(checksum & 0xFFU);
+}
+
 static void smsBuildIpHeader(uint8_t *packet, uint16_t ipPacketLength, uint32_t sourceId, uint32_t destinationId)
 {
 	uint16_t checksum;
@@ -2363,7 +2379,9 @@ static void smsBuildIpHeader(uint8_t *packet, uint16_t ipPacketLength, uint32_t 
 	packet[13] = (uint8_t)((sourceId >> 16) & 0xFFU);
 	packet[14] = (uint8_t)((sourceId >> 8) & 0xFFU);
 	packet[15] = (uint8_t)(sourceId & 0xFFU);
-	packet[16] = 0x0CU;
+	// A radio ID maps to 12.x.y.z; a talkgroup maps to 225.x.y.z. Observed from a real Anytone group
+	// SMS ("TEST VIA TG9" to TG 9 carried destination IP E1 00 00 09 = 225.0.0.9).
+	packet[16] = ((destinationId & SMS_DEST_GROUP_FLAG) != 0U) ? 0xE1U : 0x0CU;
 	packet[17] = (uint8_t)((destinationId >> 16) & 0xFFU);
 	packet[18] = (uint8_t)((destinationId >> 8) & 0xFFU);
 	packet[19] = (uint8_t)(destinationId & 0xFFU);
@@ -2439,6 +2457,7 @@ static smsPackResult_t smsBuildMotorolaPayload(uint32_t destinationId, uint32_t 
 	smsBuildIpHeader(payload, ipPacketLength, sourceId, destinationId);
 	smsBuildMotorolaUdpHeader(payload, textByteLength, currentIpSeq);
 	memcpy(&payload[SMS_MOTOROLA_TEXT_OFFSET], utf16Payload, textByteLength);
+	smsFinalizeUdpChecksum(payload);
 
 	crc32 = smsCrc32Compute(payload, crcOffset);
 	payload[crcOffset] = (uint8_t)(crc32 & 0xFFU);
@@ -2511,6 +2530,7 @@ static smsPackResult_t smsBuildStandardPayload(uint32_t destinationId, uint32_t 
 	smsBuildIpHeader(payload, ipPacketLength, sourceId, destinationId);
 	smsBuildStandardUdpHeader(payload, textByteLength);
 	memcpy(&payload[SMS_STANDARD_TEXT_OFFSET], utf16Payload, textByteLength);
+	smsFinalizeUdpChecksum(payload);
 
 	crc32 = smsCrc32Compute(payload, crcOffset);
 	payload[crcOffset] = (uint8_t)(crc32 & 0xFFU);
@@ -2765,7 +2785,8 @@ static void smsBuildCsbk(smsPreparedMessage_t *message)
 	memset(message->csbk, 0, sizeof(message->csbk));
 	message->csbk[0] = 0xBDU;                                              // CSBK opcode 0x3D + LAST flag
 	message->csbk[1] = 0x00U;                                              // Reserved
-	message->csbk[2] = 0x80U;                                              // DATA=1 (data to follow), GROUP=0 (private)
+	// DATA=1 (data to follow); GROUP=1 for a talkgroup message (0xC0, as seen from a real Anytone), else private
+	message->csbk[2] = message->groupCall ? 0xC0U : 0x80U;
 	message->csbk[3] = (uint8_t)(message->blockCount + 1U);                // Blocks to follow: N data blocks + 1 data header
 	message->csbk[4] = (uint8_t)((message->destinationId >> 16) & 0xFFU);
 	message->csbk[5] = (uint8_t)((message->destinationId >> 8) & 0xFFU);
@@ -2784,7 +2805,9 @@ static void smsBuildDataHeader(smsPreparedMessage_t *message)
 	uint16_t crc;
 
 	memset(message->dataHeader, 0, sizeof(message->dataHeader));
-	message->dataHeader[0] = 0x42U | (uint8_t)(message->padOctetCount & 0x10U);
+	// Private: A(response requested)=1, GI=0 (0x42). Group: GI=1, A=0 (0x82) -- nobody ACKs a
+	// talkgroup broadcast, and this matches the header a real Anytone sends for a group SMS.
+	message->dataHeader[0] = (message->groupCall ? 0x82U : 0x42U) | (uint8_t)(message->padOctetCount & 0x10U);
 	message->dataHeader[1] = 0x40U | (uint8_t)(message->padOctetCount & 0x0FU);  // SAP=IP(0x04) + pad[3:0]
 	message->dataHeader[2] = (uint8_t)((message->destinationId >> 16) & 0xFFU);
 	message->dataHeader[3] = (uint8_t)((message->destinationId >> 8) & 0xFFU);
@@ -2871,6 +2894,9 @@ smsPackResult_t smsPackMessage(uint32_t destinationId, uint32_t sourceId, const 
 	uint16_t payloadLength = 0;
 	uint8_t blockCount;
 	uint16_t offset;
+	bool groupCall = ((destinationId & SMS_DEST_GROUP_FLAG) != 0U);
+
+	destinationId &= ~SMS_DEST_GROUP_FLAG;
 
 	if ((message == NULL) || (text == NULL))
 	{
@@ -2890,16 +2916,22 @@ smsPackResult_t smsPackMessage(uint32_t destinationId, uint32_t sourceId, const 
 	memset(message, 0, sizeof(*message));
 	message->destinationId = destinationId;
 	message->sourceId = sourceId;
-	message->requestAck = true;
+	message->requestAck = !groupCall;
+	message->groupCall = groupCall;
 	memset(payload, 0, sizeof(payload));
 
-	if (format == SMS_ENCODER_STANDARD)
+	// The payload builders take the group flag too, so the IP layer can use the 225.x.y.z form.
 	{
-		result = smsBuildStandardPayload(destinationId, sourceId, text, payload, &payloadLength, &message->padOctetCount);
-	}
-	else
-	{
-		result = smsBuildMotorolaPayload(destinationId, sourceId, text, payload, &payloadLength, &message->padOctetCount);
+		uint32_t payloadDestination = destinationId | (groupCall ? SMS_DEST_GROUP_FLAG : 0U);
+
+		if (format == SMS_ENCODER_STANDARD)
+		{
+			result = smsBuildStandardPayload(payloadDestination, sourceId, text, payload, &payloadLength, &message->padOctetCount);
+		}
+		else
+		{
+			result = smsBuildMotorolaPayload(payloadDestination, sourceId, text, payload, &payloadLength, &message->padOctetCount);
+		}
 	}
 
 	if (result != SMS_PACK_OK)
@@ -2930,10 +2962,29 @@ smsPackResult_t smsPackMessage(uint32_t destinationId, uint32_t sourceId, const 
 	return SMS_PACK_OK;
 }
 
+// Fingerprint of the last message we sent, so the hotspot's reflected copy can be told apart from
+// a genuine message from another radio that shares our DMR ID.
+#define SMS_OWN_ECHO_WINDOW_MS 15000U
+static struct
+{
+	bool valid;
+	uint16_t length;
+	uint32_t crc;
+	ticksTimer_t timer;
+} lastTxEcho;
+
 smsPackResult_t smsQueueMessage(uint32_t destinationId, uint32_t sourceId, const char *text, smsEncoderFormat_t format)
 {
 	smsPackResult_t result = smsPackMessage(destinationId, sourceId, text, format, &queuedMessage);
 	queuedMessageValid = (result == SMS_PACK_OK);
+
+	if (queuedMessageValid)
+	{
+		lastTxEcho.length = (uint16_t)(queuedMessage.blockCount * SMS_BLOCK_DATA_BYTES);
+		lastTxEcho.crc = smsCrc32Compute(&queuedMessage.blocks[0][0], lastTxEcho.length);
+		ticksTimerStart(&lastTxEcho.timer, SMS_OWN_ECHO_WINDOW_MS);
+		lastTxEcho.valid = true;
+	}
 
 #if SMS_DEBUG_USB_SERIAL
 	USB_DEBUG_printf("SMS pack to=%lu from=%lu format=%d result=%d text=\"%s\"\r\n", (unsigned long)destinationId, (unsigned long)sourceId, (int)format, (int)result, text);
@@ -3098,11 +3149,17 @@ static bool smsScheduleQueuedMessageTransmissionInternal(uint32_t destinationId,
 
 	if (outgoingTracking.active || outgoingStartTracking.active || HRC6000IsSendingSMS() || HRC6000IRQHandlerIsRunning())
 	{
+#if SMS_DEBUG_USB_SERIAL
+		USB_DEBUG_printf("smsScheduleQueuedMessageTransmissionInternal: BUSY outgoingTracking.active=%d(waitForAck=%d) outgoingStartTracking.active=%d HRC6000IsSendingSMS=%d HRC6000IRQHandlerIsRunning=%d\r\n",
+			(int)outgoingTracking.active, (int)outgoingTracking.waitForAck, (int)outgoingStartTracking.active,
+			(int)HRC6000IsSendingSMS(), (int)HRC6000IRQHandlerIsRunning());
+#endif
 		return false;
 	}
 
 	outgoingStartTracking.active = true;
-	outgoingStartTracking.waitForAck = waitForAck;
+	// A talkgroup broadcast is never ACKed by anyone, so waiting for one would only ever time out.
+	outgoingStartTracking.waitForAck = (waitForAck && ((destinationId & SMS_DEST_GROUP_FLAG) == 0U));
 	outgoingStartTracking.storeSent = storeSent;
 	outgoingStartTracking.destinationId = destinationId;
 	outgoingStartTracking.sourceId = sourceId;
@@ -3146,7 +3203,7 @@ static void smsProcessPendingOutgoingStart(void)
 
 		if (outgoingStartTracking.storeSent)
 		{
-			(void)smsStoreSentMessage(outgoingStartTracking.destinationId, outgoingStartTracking.text);
+			(void)smsStoreSentMessage((outgoingStartTracking.destinationId & ~SMS_DEST_GROUP_FLAG), outgoingStartTracking.text);
 		}
 
 		smsStartOutgoingTracking(outgoingStartTracking.destinationId,
@@ -3207,6 +3264,11 @@ void smsNotifyOutgoingNoRepeater(void)
 
 void smsNotifyOutgoingSent(void)
 {
+#if SMS_DEBUG_USB_SERIAL
+	USB_DEBUG_printf("smsNotifyOutgoingSent: active=%d waitForAck=%d\r\n",
+		(int)outgoingTracking.active, (int)outgoingTracking.waitForAck);
+#endif
+
 	if (!outgoingTracking.active || outgoingTracking.waitForAck)
 	{
 		return;
@@ -3567,7 +3629,13 @@ static bool smsDecodeCurrentRxBuffers(const uint8_t *payload, uint16_t totalLeng
 	USB_DEBUG_printf("SMS RX decode %s: \"%s\"\r\n", (decoded ? "OK" : "FAILED"), (decoded ? decodedText : ""));
 #endif
 
-	if (decoded)
+	// Hotspots/repeaters reflect our own transmission back to us; that echo is not an inbound message.
+	// Only a copy identical to our last send, arriving shortly after it, counts as an echo, so a
+	// second radio using the same DMR ID is still received.
+	bool ownEcho = (sourceId == trxDMRID) && lastTxEcho.valid && (totalLength == lastTxEcho.length) &&
+		!ticksTimerHasExpired(&lastTxEcho.timer) && (smsCrc32Compute(payload, totalLength) == lastTxEcho.crc);
+
+	if (decoded && !ownEcho)
 	{
 		smsStoreInboxMessage(sourceId, decodedText);
 	}
@@ -3696,6 +3764,20 @@ void smsTick(void)
 		}
 	}
 
+	// Without an ACK wait, outgoingTracking is only ever released by TX completion
+	// (smsNotifyOutgoingSent(), called while hrc.smsActive is still set) or an explicit abort
+	// notification. If the transmission was aborted at a moment when this tracking didn't exist
+	// yet, that notification is a no-op and nothing else would clear it: every later send would
+	// report "SMS busy" forever. "Tracking active, no ACK wait, nothing being sent, nothing
+	// starting" can therefore only mean the send died, so release it.
+	if (outgoingTracking.active && !outgoingTracking.waitForAck && !outgoingStartTracking.active &&
+		!HRC6000IsSendingSMS() && !HRC6000IRQHandlerIsRunning())
+	{
+		outgoingTracking.active = false;
+		smsSetPendingTxEvent(SMS_TX_EVENT_REJECTED);
+		return;
+	}
+
 	if (!outgoingTracking.active || !outgoingTracking.waitForAck)
 	{
 		return;
@@ -3725,6 +3807,10 @@ bool smsHandleReceivedDataFrame(uint8_t dataType, const uint8_t *frame, uint8_t 
 	if (dataType == 0x06U)
 	{
 		uint8_t dataPacketFormat = (uint8_t)(frame[0] & 0x0FU);
+#if SMS_DEBUG_USB_SERIAL
+		USB_DEBUG_printf("SMS RX data header frame len=%u raw=%02X %02X %02X %02X %02X %02X %02X %02X %02X %02X\r\n",
+			(unsigned)frameLength, frame[0], frame[1], frame[2], frame[3], frame[4], frame[5], frame[6], frame[7], frame[8], frame[9]);
+#endif
 		// Real-world network SMS gateways (BrandMeister/MOTOTRBO-style) deliver text via the
 		// Defined Short Data / Raw Short Data DPF, not the Confirmed/Unconfirmed Data DPF this
 		// firmware uses for its own radio-to-radio sends. That header lays out the "blocks to
@@ -3761,6 +3847,14 @@ bool smsHandleReceivedDataFrame(uint8_t dataType, const uint8_t *frame, uint8_t 
 
 		sourceId = (((uint32_t)frame[5] << 16) | ((uint32_t)frame[6] << 8) | frame[7]);
 
+		// Never ACK our own echoed transmission (hotspots/FreeDMR reflect it back) or a group
+		// message (frame[0] bit7 = group). Otherwise every send is followed by a 25-frame
+		// self-addressed ACK, which also risked wedging the transmitter keyed up.
+		if ((sourceId == trxDMRID) || ((frame[0] & 0x80U) != 0U))
+		{
+			responseRequested = false;
+		}
+
 		// OpenGD77-fork-internal Status message (see SMS_STATUS_SAP_NIBBLE) -- always exactly one
 		// data block, so it's handled as a fully self-contained mini-transaction here rather than
 		// going through the multi-block rxAssembly state machine the text path uses below.
@@ -3773,17 +3867,17 @@ bool smsHandleReceivedDataFrame(uint8_t dataType, const uint8_t *frame, uint8_t 
 		}
 
 		// Legacy/original firmwares can send valid inbound SMS headers as format 0x01
-		// without setting the explicit response-request markers.
-		if (!responseRequested && (dataPacketFormat == 0x01U))
+		// without setting the explicit response-request markers. Excludes sourceId ==
+		// trxDMRID: a real legacy radio would never be us, so the only way to see our own
+		// ID here is a hotspot/repeater echoing our own ACK response (DPF 0x01) back to us
+		// after smsHandleIncomingResponsePdu() above failed to match it against our current
+		// outgoingTracking state. Without this guard that self-echo gets reclassified as "a
+		// new legacy inbound request", which gets ACKed, which echoes back and gets
+		// reclassified again -- an infinite self-ACK TX loop confirmed on real hardware
+		// (WPSD/TGIF hotspot immediately echoing the radio's own transmission back to it).
+		if (!responseRequested && (dataPacketFormat == 0x01U) && (sourceId != trxDMRID))
 		{
 			responseRequested = true;
-
-			// Keep hotspot/repeater compatibility as default. Only use legacy ACK profile
-			// in same-ID simplex interoperability cases.
-			if (sourceId == trxDMRID)
-			{
-				ackProfile = SMS_ACK_PROFILE_LEGACY;
-			}
 		}
 
 		// Some repeaters may use dataPacketFormat 0x01 for inbound SMS headers.
@@ -3799,6 +3893,11 @@ bool smsHandleReceivedDataFrame(uint8_t dataType, const uint8_t *frame, uint8_t 
 		if ((isDefinedShortOrRaw ? (sapType != 0xA0U) : (sapType != 0x40U)) ||
 			(blocks == 0U) || (blocks > SMS_MAX_RX_DATA_BLOCKS) || (pad >= SMS_BLOCK_DATA_BYTES))
 		{
+#if SMS_DEBUG_USB_SERIAL
+			USB_DEBUG_printf("SMS RX header rejected: dpf=%u sap=0x%02X blocks=%u pad=%u src=%lu raw=%02X %02X %02X %02X %02X %02X %02X %02X %02X %02X\r\n",
+				(unsigned)dataPacketFormat, (unsigned)sapType, (unsigned)blocks, (unsigned)pad, (unsigned long)sourceId,
+				frame[0], frame[1], frame[2], frame[3], frame[4], frame[5], frame[6], frame[7], frame[8], frame[9]);
+#endif
 			smsResetRxAssembly();
 			return false;
 		}
@@ -3808,10 +3907,19 @@ bool smsHandleReceivedDataFrame(uint8_t dataType, const uint8_t *frame, uint8_t 
 			uint32_t destId = (((uint32_t)frame[2] << 16) | ((uint32_t)frame[3] << 8) | frame[4]);
 			if (destId != trxDMRID)
 			{
+#if SMS_DEBUG_USB_SERIAL
+				USB_DEBUG_printf("SMS RX header dropped by 'In filter: PC' option: dest=%lu (not my ID %lu) src=%lu blocks=%u\r\n",
+					(unsigned long)destId, (unsigned long)trxDMRID, (unsigned long)sourceId, (unsigned)blocks);
+#endif
 				smsResetRxAssembly();
 				return false;
 			}
 		}
+
+#if SMS_DEBUG_USB_SERIAL
+		USB_DEBUG_printf("SMS RX header accepted: dpf=%u group=%d src=%lu blocks=%u pad=%u\r\n",
+			(unsigned)dataPacketFormat, (int)((frame[0] & 0x80U) != 0U), (unsigned long)sourceId, (unsigned)blocks, (unsigned)pad);
+#endif
 
 		rxAssembly.active = true;
 		rxAssembly.expectedBlocks = blocks;

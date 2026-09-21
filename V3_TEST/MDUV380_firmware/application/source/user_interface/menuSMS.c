@@ -98,6 +98,7 @@ typedef enum
 {
 	SMS_DESTINATION_OPTION_SELECT_CONTACT = 0,
 	SMS_DESTINATION_OPTION_MANUAL_ID,
+	SMS_DESTINATION_OPTION_MANUAL_TG,
 	SMS_DESTINATION_OPTION_COUNT
 } smsDestinationOption_t;
 
@@ -143,6 +144,7 @@ static smsComposeMode_t smsComposeMode = SMS_COMPOSE_MODE_EDIT;
 static uint16_t smsComposeContactIndex = 0U;
 static uint8_t smsComposeDestinationOptionIndex = 0U;
 static char smsComposeManualIdBuffer[11] = { 0 };
+static bool smsComposeManualIdIsGroup = false;
 static bool smsRxRespondMode = false;
 static uint8_t smsRxRespondOptionIndex = 0U;
 static uint32_t smsComposePendingDestinationId = 0U;
@@ -937,7 +939,10 @@ static void smsInboxRender(void)
 	char line[SCREEN_LINE_BUFFER_SIZE];
 	uint8_t count = smsGetInboxCount();
 	int firstIndex = 0;
-	int visibleEntries = (MENU_END_ITERATION_VALUE - MENU_START_ITERATION_VALUE + 1);
+	// The draw loop below runs i = START..END-1, i.e. END-START rows (not END-START+1); using the
+	// larger figure made the selected entry fall one row below the last row drawn, so the list
+	// never scrolled far enough to show it.
+	int visibleEntries = (MENU_END_ITERATION_VALUE - MENU_START_ITERATION_VALUE);
 
 	displayClearBuf();
 	menuDisplayTitle("SMS Inbox");
@@ -1001,7 +1006,8 @@ static void smsSentRender(void)
 	char line[SCREEN_LINE_BUFFER_SIZE];
 	uint8_t count = smsGetSentCount();
 	int firstIndex = 0;
-	int visibleEntries = (MENU_END_ITERATION_VALUE - MENU_START_ITERATION_VALUE + 1);
+	// Same row count as the inbox list: the loop draws END-START rows.
+	int visibleEntries = (MENU_END_ITERATION_VALUE - MENU_START_ITERATION_VALUE);
 
 	displayClearBuf();
 	menuDisplayTitle("SMS Sent");
@@ -1218,7 +1224,7 @@ static void smsComposeRenderContactSelect(void)
 
 static void smsComposeRenderDestinationSelect(void)
 {
-	const char *options[SMS_DESTINATION_OPTION_COUNT] = { "Select contact", "Manual ID" };
+	const char *options[SMS_DESTINATION_OPTION_COUNT] = { "Select contact", "Manual ID", "Talkgroup ID" };
 
 	menuDataGlobal.numItems = SMS_DESTINATION_OPTION_COUNT;
 	if (smsComposeDestinationOptionIndex >= SMS_DESTINATION_OPTION_COUNT)
@@ -1303,7 +1309,7 @@ static void smsComposeRenderManualIdEntry(void)
 	}
 
 	displayClearBuf();
-	menuDisplayTitle("Manual ID");
+	menuDisplayTitle(smsComposeManualIdIsGroup ? "Talkgroup ID" : "Manual ID");
 	displayThemeApply(THEME_ITEM_FG_MENU_ITEM, THEME_ITEM_BG);
 	displayPrintAt(DISPLAY_X_POS_MENU_TEXT_OFFSET, DISPLAY_Y_POS_MENU_START + FONT_SIZE_2_HEIGHT, line, FONT_SIZE_2);
 	displayThemeApply(THEME_ITEM_FG_OPTIONS_VALUE, THEME_ITEM_BG);
@@ -1554,6 +1560,7 @@ menuStatus_t menuSMSCompose(uiEvent_t *ev, bool isFirstRun)
 			}
 			else
 			{
+				smsComposeManualIdIsGroup = (smsComposeDestinationOptionIndex == SMS_DESTINATION_OPTION_MANUAL_TG);
 				smsComposeMode = SMS_COMPOSE_MODE_MANUAL_ID;
 				smsComposeManualIdBuffer[0] = 0;
 				smsComposeRenderManualIdEntry();
@@ -1587,16 +1594,17 @@ menuStatus_t menuSMSCompose(uiEvent_t *ev, bool isFirstRun)
 			char *endPtr = NULL;
 			unsigned long parsedId = strtoul(smsComposeManualIdBuffer, &endPtr, 10);
 
-			if ((smsComposeManualIdBuffer[0] == 0) || (endPtr == NULL) || (*endPtr != 0) || (parsedId == 0UL) || (parsedId > 0xFFFFFFFFUL))
+			if ((smsComposeManualIdBuffer[0] == 0) || (endPtr == NULL) || (*endPtr != 0) || (parsedId == 0UL) || (parsedId > 0x00FFFFFFUL))
 			{
 				soundSetMelody(MELODY_ERROR_BEEP);
 				uiNotificationShow(NOTIFICATION_TYPE_MESSAGE, NOTIFICATION_ID_USER, 1500, "Invalid ID", true);
 				return MENU_STATUS_SUCCESS;
 			}
 
-			smsComposePendingDestinationId = (uint32_t)parsedId;
+			smsComposePendingDestinationId = (uint32_t)parsedId | (smsComposeManualIdIsGroup ? SMS_DEST_GROUP_FLAG : 0U);
 			smsComposeFormatSelectReturnMode = SMS_COMPOSE_MODE_DESTINATION_SELECT;
-			smsComposeFormatOptionIndex = SMS_FORMAT_OPTION_MOTOROLA;
+			// A group message is what a real Anytone sends as "DMR_Standard", so preselect that.
+			smsComposeFormatOptionIndex = smsComposeManualIdIsGroup ? SMS_FORMAT_OPTION_STANDARD : SMS_FORMAT_OPTION_MOTOROLA;
 			smsComposeMode = SMS_COMPOSE_MODE_FORMAT_SELECT;
 			menuDataGlobal.currentItemIndex = 0;
 			smsComposeRenderFormatSelect();

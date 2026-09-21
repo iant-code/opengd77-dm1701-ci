@@ -33,6 +33,10 @@
 #include <malloc.h>
 #include <stdio.h>
 
+// Diagnostic logging for tracking down an unexpected voice TX seen after an SMS send
+// (2026-09-20 session). Off by default, mirrors sms.c/HR-C6000.c's existing debug-flag pattern.
+#define PTT_SOURCE_DEBUG_USB_SERIAL 0
+
 #include "interfaces/adc.h"
 #include "interfaces/batteryRAM.h"
 #include "hardware/SPI_Flash.h"
@@ -711,11 +715,17 @@ void applicationMainTask(void)
 			{
 				if (!trxTransmissionEnabled && voxIsTriggered() && ((buttons & BUTTON_PTT) == 0))
 				{
+#if PTT_SOURCE_DEBUG_USB_SERIAL
+					USB_DEBUG_printf("VOX: triggering synthetic PTT (was not transmitting)\r\n");
+#endif
 					button_event = EVENT_BUTTON_CHANGE;
 					buttons |= BUTTON_PTT;
 				}
 				else if (trxTransmissionEnabled && ((voxIsTriggered() == false) || (keys.event & KEY_MOD_PRESS)))
 				{
+#if PTT_SOURCE_DEBUG_USB_SERIAL
+					USB_DEBUG_printf("VOX: releasing synthetic PTT (voxTriggered=%d)\r\n", (int)voxIsTriggered());
+#endif
 					button_event = EVENT_BUTTON_CHANGE;
 					buttons &= ~BUTTON_PTT;
 				}
@@ -724,6 +734,9 @@ void applicationMainTask(void)
 					// Any key/button event reset the vox
 					if ((button_event != EVENT_BUTTON_NONE) || (keys.event != EVENT_KEY_NONE))
 					{
+#if PTT_SOURCE_DEBUG_USB_SERIAL
+						USB_DEBUG_printf("VOX: reset due to key/button event, releasing PTT\r\n");
+#endif
 						voxReset();
 						button_event = EVENT_BUTTON_CHANGE;
 						buttons &= ~BUTTON_PTT;

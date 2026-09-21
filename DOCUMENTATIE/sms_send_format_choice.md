@@ -39,6 +39,41 @@ this session spent most of its time getting *receive* support for. Verified
 correct on the wire (byte-for-byte: UDP port, sub-header constants, UDP
 length math) but not yet confirmed against a real Anytone radio's screen.
 
+**Update, confirmed against a real AnyTone 890 capture**: on 2026-09-20, a
+group-call SMS from a real AnyTone 890 (M0WDG, to TG 4023585 via a WPSD
+hotspot/TGIF) was captured off the hotspot's raw Homebrew `DMRD` traffic
+(`DOCUMENTATIE/captures/m0wdg_anytone_sms_2026-09-20.txt`) and decoded with
+a from-scratch BPTC(196,96) implementation ported from MMDVMHost's
+`BPTC19696.cpp`/`Hamming.cpp` (`DOCUMENTATIE/captures/decode_dmr_burst.py`;
+independently cross-validated against the hotspot's own event log --
+recovered blocks-to-follow=5 matched the log's "5 blocks" exactly, and the
+recovered text decoded to a coherent, readable "VIA TG M0WDG").
+
+**This settles the "DMR_Standard" naming/interop question**: the real
+AnyTone transmission's Data Header and payload matched this firmware's
+existing `smsBuildDataHeader()`/`smsBuildStandardPayload()` output
+byte-for-byte on every field that isn't call-type-specific -- IP header
+(`0x45`, TTL `0x01`, protocol `0x11`, `0x0C`-prefixed DMR-ID-as-IP
+encoding), UDP port 5016 (`0x1398`), the 4-byte `00 0D 00 0A` sub-header,
+the trailing CRC32, Data Header DPF (`0x02`, low nibble of byte 0), and SAP
+(`0x40`, IP). The only differing bits were byte 0's GI (Group/Individual)
+and "response requested" flags, which differ because that capture was a
+*group* call and this firmware currently only builds *private*-call
+headers -- an expected, correct difference in call type, not a decode or
+encode bug.
+
+**Conclusion: no rate-3/4 encoder is needed to interoperate with a real
+AnyTone for this case.** The "Known limitation" section below (no TX
+support for rate-3/4 blocks) still stands as written for the actual ETSI
+`Defined Short Data` DPF (`0x0D`/`0x0E`) -- that remains unimplemented for
+TX -- but it turns out real-world AnyTone SMS, at least via this TGIF/WPSD
+path, doesn't require it: it uses the same DPF=2 Confirmed/Unconfirmed
+Data + IP/UDP shape this firmware already sends as "DMR_Standard". A
+private-call "DMR_Standard" reply from this firmware should already be
+decodable by a real AnyTone 890 -- next step is an actual over-the-air
+test to confirm, since this has only been verified by decoding his
+transmission, not yet by having his radio receive ours.
+
 ## SAP validation for Defined Short/Raw Data headers
 
 Per a report of the real spec (ETSI TS 102 361-1 clause 9.2.12, Defined Data

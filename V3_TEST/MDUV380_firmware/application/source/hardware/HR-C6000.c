@@ -1011,6 +1011,14 @@ static inline void hrc6000SysReceivedDataInt(void)
 		// LC_DATA_LENGTH covers -- see SMS_RATE34_DATA_LENGTH.
 		dataSyncReadLength = (rxDataType == 0x08) ? SMS_RATE34_DATA_LENGTH : LC_DATA_LENGTH;
 		dataSyncReadOk = (SPI0ReadPageRegByteArray(0x02, 0x00, dataSyncBuf, dataSyncReadLength) == kStatus_Success);
+#if CSBK_DEBUG_USB_SERIAL
+		if (rxDataType != 3)
+		{
+			USB_DEBUG_printf("DATA RX type=%u crcValid=%d priv=%d readOk=%d slotState=%d b0=%02X b1=%02X\r\n",
+				(unsigned)rxDataType, (int)hrc.rxCRCisValid, rxPrivacyIndicator, (int)dataSyncReadOk, (int)slotState,
+				dataSyncBuf[0], dataSyncBuf[1]);
+		}
+#endif
 	}
 
 	if (SPI0ReadPageRegByte(0x04, 0x5f, &reg_0x5F) != kStatus_Success)
@@ -1084,6 +1092,13 @@ static inline void hrc6000SysReceivedDataInt(void)
 	{
 		(void)smsHandleReceivedDataFrame((uint8_t)rxDataType, dataSyncBuf, dataSyncReadLength);
 	}
+#if CSBK_DEBUG_USB_SERIAL
+	else if (isSmsDataFrame)
+	{
+		USB_DEBUG_printf("SMS data frame DROPPED before sms.c: rxDataType=%u crcValid=%d readOk=%d len=%u\r\n",
+			(unsigned)rxDataType, (int)hrc6000CrcIsValid(), (int)dataSyncReadOk, (unsigned)dataSyncReadLength);
+	}
+#endif
 
 	// Standalone CSBK bursts (Call Alert / Radio Check), as opposed to the CSBK preamble that
 	// precedes an SMS data header -- dataSyncBuf/dataSyncReadOk are already populated for any
@@ -1842,6 +1857,14 @@ void hrc6000TimeslotInterruptHandler(void)
 			else
 			{
 				slotState = DMR_STATE_TX_2;
+
+#if CSBK_DEBUG_USB_SERIAL
+				if (hrc.smsActive)
+				{
+					USB_DEBUG_printf("TX_1: staying keyed, smsActive=1 transmissionEnabled=%u txSequence=%d frameIndex=%u frameCount=%u\r\n",
+						(unsigned)hrc.transmissionEnabled, hrc.txSequence, (unsigned)hrc.smsFrameIndex, (unsigned)hrc.smsFrameCount);
+				}
+#endif
 			}
 			break;
 
@@ -1931,8 +1954,10 @@ void hrc6000TimeslotInterruptHandler(void)
 				USB_DEBUG_printf("TX_END_1: smsActive TX complete, frameIndex=%u frameCount=%u\r\n",
 					(unsigned)hrc.smsFrameIndex, (unsigned)hrc.smsFrameCount);
 #endif
-				hrc.smsActive = false;
+				// Notify while smsActive is still set, so sms.c's busy-latch safety net can never see
+				// "no TX running but tracking still active" for this completed send.
 				smsNotifyOutgoingSent();
+				hrc.smsActive = false;
 				SPI0WritePageRegByte(0x04, 0x41, 0x00);
 				slotState = DMR_STATE_TX_END_2;
 				break;
@@ -2195,6 +2220,13 @@ static void hrc6000SendSMSFrame(void)
 {
 	if ((hrc.smsActive == false) || (hrc.smsFrameIndex >= hrc.smsFrameCount))
 	{
+#if CSBK_DEBUG_USB_SERIAL
+		if (hrc.smsActive)
+		{
+			USB_DEBUG_printf("hrc6000SendSMSFrame: no-op, frameIndex=%u already >= frameCount=%u\r\n",
+				(unsigned)hrc.smsFrameIndex, (unsigned)hrc.smsFrameCount);
+		}
+#endif
 		return;
 	}
 
@@ -2202,10 +2234,19 @@ static void hrc6000SendSMSFrame(void)
 	SPI0WritePageRegByte(0x04, 0x50, hrc6000GetSmsDataType());
 	hrc.smsFrameIndex++;
 
+#if CSBK_DEBUG_USB_SERIAL
+	USB_DEBUG_printf("hrc6000SendSMSFrame: sent frame %u/%u dataType=0x%02x\r\n",
+		(unsigned)hrc.smsFrameIndex, (unsigned)hrc.smsFrameCount, hrc6000GetSmsDataType());
+#endif
+
 	if (hrc.smsFrameIndex >= hrc.smsFrameCount)
 	{
 		trxTransmissionEnabled = false;
 		hrc.transmissionEnabled = false;
+
+#if CSBK_DEBUG_USB_SERIAL
+		USB_DEBUG_printf("hrc6000SendSMSFrame: last frame sent, transmissionEnabled cleared\r\n");
+#endif
 	}
 }
 
@@ -2412,6 +2453,24 @@ static void hrc6000ManageCCHoldState(void)
 	}
 }
 
+// Gives up on a queued SMS/CSBK transmission whose repeater wake never succeeded: drops the frames,
+// releases the transmit request (so it can't fall through into a voice TX) and tells sms.c, which
+// releases its busy latch and shows a failure to the user.
+static void hrc6000AbortSmsTransmission(void)
+{
+	hrc.smsActive = false;
+	hrc.smsFrameCount = 0;
+	hrc.smsFrameIndex = 0;
+	trxTransmissionEnabled = false;
+	hrc.transmissionEnabled = false;
+	HRC6000ClearIsWakingState();
+	smsNotifyOutgoingRejected();
+
+#if CSBK_DEBUG_USB_SERIAL
+	USB_DEBUG_printf("hrc6000AbortSmsTransmission: repeater wake failed, SMS/CSBK TX abandoned\r\n");
+#endif
+}
+
 static void hrc6000Tick(void)
 {
 	hrc6000ManageCCHoldState();
@@ -2511,6 +2570,18 @@ static void hrc6000Tick(void)
 
 			if (hrc.interruptTimeout == INTERRUPT_TIMEOUT)
 			{
+				// This watchdog fires after INTERRUPT_TIMEOUT ticks without a timeslot interrupt, which
+				// is always sooner than the repeater-wake retry (WAKEUP_RETRY_PERIOD) while the radio is
+				// waiting in DMR_STATE_REPEATER_WAKE_x for the hotspot/repeater to start its downlink.
+				// HRC6000InitDigital() below wipes hrc.smsActive (and the frame counters) but leaves
+				// hrc.transmissionEnabled set, so the wake retry then restarts the transmission -- fine for
+				// voice, but for SMS it meant the queued message was gone and the radio keyed up as an
+				// ordinary VOICE transmission, and sms.c's busy latch was never released. Save the SMS
+				// state here and restore it after the reset so the retry carries the message.
+				bool wasSmsActive = hrc.smsActive;
+				uint8_t keptSmsFrameCount = hrc.smsFrameCount;
+				uint8_t keptSmsPreambleCount = hrc.smsPreambleCount;
+
 				HRC6000InitDigital();// sets 	interruptTimeout=0;
 				HRC6000ClearActiveDMRID();
 				if (uiDataGlobal.displayQSOState != QSO_DISPLAY_DEFAULT_SCREEN)
@@ -2530,6 +2601,22 @@ static void hrc6000Tick(void)
 				hrc.hasAudioData = false;
 				hrc.qsoDataTimeout = 0;
 				hrc.skipOneTS = false;
+
+				if (wasSmsActive)
+				{
+					// Keep the queued frames (hrc.smsFrames[] itself is untouched) and leave
+					// transmissionEnabled set: the wake-retry logic below then restarts the
+					// transmission exactly as it does for a voice PTT, and the SMS goes out from
+					// its first frame. hrc6000AbortSmsTransmission() gives up if the wake fails.
+					hrc.smsPreambleCount = keptSmsPreambleCount;
+					hrc.smsFrameCount = keptSmsFrameCount;
+					hrc.smsFrameIndex = 0U;
+					hrc.smsActive = true;
+
+#if CSBK_DEBUG_USB_SERIAL
+					USB_DEBUG_printf("hrc6000Tick watchdog: SMS/CSBK TX stalled, kept %u frames for the wake retry\r\n", (unsigned)keptSmsFrameCount);
+#endif
+				}
 			}
 		}
 	}
@@ -2555,6 +2642,12 @@ static void hrc6000Tick(void)
 				if (hrc.wakeTriesCount > codeplugGetRepeaterWakeAttempts())
 				{
 					hrc.isWaking = WAKING_MODE_FAILED;// signal that the Wake process has failed.
+
+					if (hrc.smsActive)
+					{
+						// Nothing on the SMS side watches for WAKING_MODE_FAILED (the voice UI does).
+						hrc6000AbortSmsTransmission();
+					}
 				}
 				else
 				{
@@ -2937,6 +3030,9 @@ bool HRC6000StartQueuedSMS(void)
 	uint8_t frameIndex = 0U;
 	uint8_t preambleCount = SMS_PREAMBLE_CSBKS;
 	bool slotStateReady;
+#if CSBK_DEBUG_USB_SERIAL
+	uint8_t debugBlockCount = (message != NULL) ? message->blockCount : 0U;
+#endif
 
 	if ((hrc.isWaking == WAKING_MODE_FAILED) && trxTransmissionEnabled && !trxIsTransmitting)
 	{
@@ -3021,6 +3117,13 @@ bool HRC6000StartQueuedSMS(void)
 	hrc.smsActive = true;
 	smsClearQueuedMessage();
 	HRC6000ClearIsWakingState();
+
+#if CSBK_DEBUG_USB_SERIAL
+	USB_DEBUG_printf("HRC6000StartQueuedSMS: preambleCount=%u blockCount=%u frameCount=%u (SMS_MAX_TX_FRAMES=%u) txSequence=%d\r\n",
+		(unsigned)hrc.smsPreambleCount, (unsigned)debugBlockCount, (unsigned)hrc.smsFrameCount,
+		(unsigned)SMS_MAX_TX_FRAMES, hrc.txSequence);
+#endif
+
 	trxEnableTransmission();
 	return true;
 }
