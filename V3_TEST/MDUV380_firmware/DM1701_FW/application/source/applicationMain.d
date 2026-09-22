@@ -103,7 +103,8 @@ application/source/applicationMain.o: \
  ../application/include/interfaces/gps.h \
  ../application/include/interfaces/settingsStorage.h \
  ../application/include/functions/rxPowerSaving.h \
- ../application/include/functions/sms.h
+ ../application/include/functions/sms.h \
+ ../application/include/functions/csbk.h
 ../application/include/hardware/HX8353E.h:
 ../Core/Inc/main.h:
 ../Drivers/STM32F4xx_HAL_Driver/Inc/stm32f4xx_hal.h:
@@ -211,3 +212,4 @@ application/source/applicationMain.o: \
 ../application/include/interfaces/settingsStorage.h:
 ../application/include/functions/rxPowerSaving.h:
 ../application/include/functions/sms.h:
+../application/include/functions/csbk.h:

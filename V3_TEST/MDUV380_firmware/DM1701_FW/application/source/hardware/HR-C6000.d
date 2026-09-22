@@ -82,6 +82,15 @@ application/source/hardware/HR-C6000.o: \
  ../application/include/dmr_codec/codec.h \
  ../application/include/functions/ticks.h \
  ../application/include/functions/sms.h \
+ ../application/include/functions/csbk.h \
+ ../application/include/usb/usb_com.h ../USB_DEVICE/App/usbd_cdc_if.h \
+ ../Middlewares/ST/STM32_USB_Device_Library/Class/CDC/Inc/usbd_cdc.h \
+ ../Middlewares/ST/STM32_USB_Device_Library/Core/Inc/usbd_ioreq.h \
+ ../Middlewares/ST/STM32_USB_Device_Library/Core/Inc/usbd_def.h \
+ ../USB_DEVICE/Target/usbd_conf.h \
+ ../Middlewares/ST/STM32_USB_Device_Library/Core/Inc/usbd_core.h \
+ ../Middlewares/ST/STM32_USB_Device_Library/Core/Inc/usbd_ioreq.h \
+ ../Middlewares/ST/STM32_USB_Device_Library/Core/Inc/usbd_ctlreq.h \
  ../application/include/functions/hotspot.h \
  ../application/include/user_interface/uiUtilities.h \
  ../application/include/user_interface/uiGlobals.h \
@@ -176,6 +185,16 @@ application/source/hardware/HR-C6000.o: \
 ../application/include/dmr_codec/codec.h:
 ../application/include/functions/ticks.h:
 ../application/include/functions/sms.h:
+../application/include/functions/csbk.h:
+../application/include/usb/usb_com.h:
+../USB_DEVICE/App/usbd_cdc_if.h:
+../Middlewares/ST/STM32_USB_Device_Library/Class/CDC/Inc/usbd_cdc.h:
+../Middlewares/ST/STM32_USB_Device_Library/Core/Inc/usbd_ioreq.h:
+../Middlewares/ST/STM32_USB_Device_Library/Core/Inc/usbd_def.h:
+../USB_DEVICE/Target/usbd_conf.h:
+../Middlewares/ST/STM32_USB_Device_Library/Core/Inc/usbd_core.h:
+../Middlewares/ST/STM32_USB_Device_Library/Core/Inc/usbd_ioreq.h:
+../Middlewares/ST/STM32_USB_Device_Library/Core/Inc/usbd_ctlreq.h:
 ../application/include/functions/hotspot.h:
 ../application/include/user_interface/uiUtilities.h:
 ../application/include/user_interface/uiGlobals.h:

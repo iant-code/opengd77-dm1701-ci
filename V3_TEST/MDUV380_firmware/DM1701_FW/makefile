@@ -82,8 +82,8 @@ all:
 main-build: MDUV380_firmware.elf secondary-outputs
 
 # Tool invocations
-MDUV380_firmware.elf MDUV380_firmware.map: $(OBJS) $(USER_OBJS) C:\Users\berts\Documents\uv390-self_dev\V2_MOTOROLA_FORMAT\MDUV380_firmware\STM32F405VGTX_FLASH.ld makefile objects.list $(OPTIONAL_TOOL_DEPS)
-	arm-none-eabi-gcc -o "MDUV380_firmware.elf" @"objects.list" $(USER_OBJS) $(LIBS) -mcpu=cortex-m4 -T"C:\Users\berts\Documents\uv390-self_dev\V2_MOTOROLA_FORMAT\MDUV380_firmware\STM32F405VGTX_FLASH.ld" --specs=nosys.specs -Wl,-Map="MDUV380_firmware.map" -Wl,--gc-sections -static --specs=nano.specs -mfpu=fpv4-sp-d16 -mfloat-abi=hard -mthumb -Wl,--start-group -lc -lm -Wl,--end-group
+MDUV380_firmware.elf MDUV380_firmware.map: $(OBJS) $(USER_OBJS) D:\Projects\opengd77-dm1701-ci\V3_TEST\MDUV380_firmware\STM32F405VGTX_FLASH.ld makefile objects.list $(OPTIONAL_TOOL_DEPS)
+	arm-none-eabi-gcc -o "MDUV380_firmware.elf" @"objects.list" $(USER_OBJS) $(LIBS) -mcpu=cortex-m4 -T"D:\Projects\opengd77-dm1701-ci\V3_TEST\MDUV380_firmware\STM32F405VGTX_FLASH.ld" --specs=nosys.specs -Wl,-Map="MDUV380_firmware.map" -Wl,--gc-sections -static --specs=nano.specs -mfpu=fpv4-sp-d16 -mfloat-abi=hard -mthumb -Wl,--start-group -lc -lm -Wl,--end-group
 	@echo 'Finished building target: $@'
 	@echo ' '
 
